@@ -1,0 +1,582 @@
+import { buildContextGraph, buildDecisionEvidence, candidates, explanationFor, rankCandidates, scenarioDefaults, type ContextInput, type ScenarioKey } from './domain';
+import { renderGraph } from './rdf';
+import { renderGraphViz, type GraphViz, type GraphVizEdge, type GraphVizNode } from './graph-viz';
+import './style.css';
+
+const app = document.querySelector<HTMLDivElement>('#app');
+
+if (!app) {
+  throw new Error('App root not found');
+}
+
+const scenarioOptions: ReadonlyArray<{ value: ScenarioKey; label: string }> = [
+  { value: 'family-photo', label: '가족 사진 공유' },
+  { value: 'work-doc', label: '업무 문서 공유' },
+  { value: 'social-link', label: '링크 공유' },
+];
+
+const section = document.createElement('main');
+section.className = 'shell';
+
+section.innerHTML = `
+  <header class="hero">
+    <div>
+      <p class="eyebrow">RDF + fp-ts + TypeScript</p>
+      <h1>Sharesheet Recommendation Demo</h1>
+      <p class="subtitle">PDE(장기 컨텍스트) + CE(실시간 컨텍스트)를 RDF working graph로 묶어 추천 순위를 계산합니다.</p>
+    </div>
+    <div class="badge">GitHub Pages ready</div>
+  </header>
+`;
+
+const controls = document.createElement('section');
+controls.className = 'panel';
+controls.innerHTML = '<h2>Context Input</h2>';
+
+const scenarioSelect = document.createElement('select');
+scenarioSelect.className = 'wide';
+for (const option of scenarioOptions) {
+  const el = document.createElement('option');
+  el.value = option.value;
+  el.textContent = option.label;
+  scenarioSelect.appendChild(el);
+}
+scenarioSelect.value = 'family-photo';
+
+const contentTypeSelect = document.createElement('select');
+contentTypeSelect.className = 'wide';
+for (const value of ['image', 'document', 'link']) {
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = value;
+  contentTypeSelect.appendChild(option);
+}
+
+const sourceAppSelect = document.createElement('select');
+sourceAppSelect.className = 'wide';
+for (const value of ['gallery', 'mail', 'browser', 'chat']) {
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = value;
+  sourceAppSelect.appendChild(option);
+}
+
+const timeBandSelect = document.createElement('select');
+timeBandSelect.className = 'wide';
+for (const value of ['morning', 'afternoon', 'evening']) {
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = value;
+  timeBandSelect.appendChild(option);
+}
+
+const placeSelect = document.createElement('select');
+placeSelect.className = 'wide';
+for (const value of ['home', 'office', 'moving']) {
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = value;
+  placeSelect.appendChild(option);
+}
+
+const runButton = document.createElement('button');
+runButton.className = 'primary';
+runButton.textContent = 'Recommendation Run';
+
+const form = document.createElement('div');
+form.className = 'grid';
+form.append(
+  labelWrap('Scenario', scenarioSelect),
+  labelWrap('Content Type', contentTypeSelect),
+  labelWrap('Source App', sourceAppSelect),
+  labelWrap('Time Band', timeBandSelect),
+  labelWrap('Place', placeSelect),
+  runButton,
+);
+
+controls.appendChild(form);
+
+const output = document.createElement('section');
+output.className = 'output-grid';
+
+const graphCard = card('Context Graph');
+const graphInspector = document.createElement('section');
+graphInspector.className = 'panel graph-inspector';
+
+const rankingCard = card('Ranking');
+const explanationCard = card('Explanation');
+const legendCard = card('Design Notes');
+
+const graphColumn = document.createElement('section');
+graphColumn.className = 'graph-column';
+graphColumn.append(graphCard, graphInspector);
+
+output.append(graphColumn, rankingCard, explanationCard, legendCard);
+
+section.append(controls, output);
+app.append(section);
+
+const setDefaults = (scenario: ScenarioKey): void => {
+  const defaults = scenarioDefaults[scenario];
+  contentTypeSelect.value = defaults.contentType;
+  sourceAppSelect.value = defaults.sourceApp;
+  timeBandSelect.value = defaults.timeBand;
+  placeSelect.value = defaults.place;
+};
+
+const kindLabel = (kind: GraphVizNode['kind']): string => {
+  switch (kind) {
+    case 'ctx':
+      return 'Working Context';
+    case 'pde':
+      return 'PDE / Long-term';
+    case 'ce':
+      return 'CE / Runtime';
+    case 'decision':
+      return 'Decision / Outcome';
+    case 'literal':
+      return 'Literal Evidence';
+    case 'other':
+    default:
+      return 'Other';
+  }
+};
+
+const makeList = (items: ReadonlyArray<string>, className: string): HTMLUListElement => {
+  const ul = document.createElement('ul');
+  ul.className = className;
+  items.forEach((item) => {
+    const li = document.createElement('li');
+    li.textContent = item;
+    ul.appendChild(li);
+  });
+  return ul;
+};
+
+const renderNodeInspector = (node: GraphVizNode, viz: GraphViz): void => {
+  const outgoing = viz.edges.filter((edge) => edge.sourceKey === node.key);
+  const incoming = viz.edges.filter((edge) => edge.targetKey === node.key);
+  const relatedNodeKeys = new Set<string>([node.key]);
+  outgoing.forEach((edge) => {
+    relatedNodeKeys.add(edge.targetKey);
+  });
+  incoming.forEach((edge) => {
+    relatedNodeKeys.add(edge.sourceKey);
+  });
+
+  const container = document.createElement('div');
+  container.className = 'inspector-body';
+
+  const header = document.createElement('div');
+  header.className = 'inspector-header';
+  header.innerHTML = `
+    <p class="chip">${kindLabel(node.kind)}</p>
+    <h4>${node.label}</h4>
+    <p>${node.kind === 'ctx' ? '현재 share intent를 구성하는 작업 그래프의 중심 노드입니다.' : node.kind === 'pde' ? '장기 관계와 affinity evidence를 담고 있습니다.' : node.kind === 'ce' ? '실시간 시간/장소/앱 상태를 담고 있습니다.' : node.kind === 'decision' ? '의사결정과 결과 피드백을 기록합니다.' : '보조 evidence 노드입니다.'}</p>
+  `;
+
+  const meta = document.createElement('div');
+  meta.className = 'inspector-meta';
+  meta.innerHTML = `<span>${outgoing.length} outgoing</span><span>${incoming.length} incoming</span><span>${relatedNodeKeys.size} connected nodes</span>`;
+
+  const outgoingList = makeList(
+    outgoing.map((edge) => `${edge.predicate} → ${edge.targetLabel}`),
+    'inspector-list',
+  );
+  const incomingList = makeList(
+    incoming.map((edge) => `${edge.predicate} ← ${edge.sourceLabel}`),
+    'inspector-list',
+  );
+
+  const related = document.createElement('div');
+  related.className = 'inspector-related';
+  related.innerHTML = '<h5>Neighborhood</h5>';
+  related.append(
+    makeList(
+      Array.from(relatedNodeKeys).map((key) => {
+        const found = viz.nodes.find((n) => n.key === key);
+        return found ? `${found.label} (${kindLabel(found.kind)})` : key;
+      }),
+      'inspector-list compact',
+    ),
+  );
+
+  const sections = document.createElement('div');
+  sections.className = 'inspector-sections';
+
+  const outgoingBlock = document.createElement('section');
+  outgoingBlock.innerHTML = '<h5>Outgoing evidence</h5>';
+  outgoingBlock.append(outgoingList);
+
+  const incomingBlock = document.createElement('section');
+  incomingBlock.innerHTML = '<h5>Incoming evidence</h5>';
+  incomingBlock.append(incomingList);
+
+  sections.append(outgoingBlock, incomingBlock);
+  container.append(header, meta, sections, related);
+  graphInspector.replaceChildren(titleNode('Graph Inspector'), container);
+};
+
+const renderEdgeInspector = (edge: GraphVizEdge): void => {
+  const container = document.createElement('div');
+  container.className = 'inspector-body';
+  const header = document.createElement('div');
+  header.className = 'inspector-header';
+  header.innerHTML = `
+    <p class="chip">EDGE EVIDENCE</p>
+    <h4>${edge.predicate}</h4>
+    <p>${edge.sourceLabel} → ${edge.targetLabel}</p>
+  `;
+
+  const meta = document.createElement('div');
+  meta.className = 'inspector-meta';
+  meta.innerHTML = '<span>triple</span><span>predicate</span><span>relation</span>';
+
+  const body = document.createElement('div');
+  body.className = 'inspector-edge';
+  body.innerHTML = `
+    <p><strong>RDF triple</strong></p>
+    <pre class="graph">${edge.sourceLabel} ${edge.predicate} ${edge.targetLabel} .</pre>
+    <p>이 edge는 node 간 evidence link를 설명합니다.</p>
+  `;
+
+  container.append(header, meta, body);
+  graphInspector.replaceChildren(titleNode('Graph Inspector'), container);
+};
+
+const renderDecisionInspector = (evidence: ReturnType<typeof buildDecisionEvidence>): void => {
+  const container = document.createElement('div');
+  container.className = 'inspector-body';
+
+  const header = document.createElement('div');
+  header.className = 'inspector-header';
+  header.innerHTML = `
+    <p class="chip">DECISION BASIS</p>
+    <h4>${evidence.topRecommendation.candidate.label}</h4>
+    <p>${evidence.scenarioLabel}에서 가장 높은 점수를 받은 후보입니다.</p>
+  `;
+
+  const meta = document.createElement('div');
+  meta.className = 'inspector-meta';
+  meta.innerHTML = `
+    <span>score ${evidence.topRecommendation.score}</span>
+    <span>base ${evidence.topRecommendation.breakdown.base}</span>
+    <span>scenario ${evidence.topRecommendation.breakdown.scenario}</span>
+    <span>content ${evidence.topRecommendation.breakdown.content}</span>
+    <span>time/place ${evidence.topRecommendation.breakdown.timePlace}</span>
+  `;
+
+  const bar = (label: string, value: number, max: number, accent: string): string => {
+    const pct = max <= 0 ? 0 : Math.max(8, (value / max) * 100);
+    return `
+      <div class="decision-bar">
+        <div class="decision-bar__label"><span>${label}</span><span>${value}</span></div>
+        <div class="decision-bar__track"><div class="decision-bar__fill" style="width:${pct.toFixed(1)}%; background:${accent}"></div></div>
+      </div>
+    `;
+  };
+
+  const maxScore = Math.max(evidence.topRecommendation.breakdown.base, evidence.topRecommendation.breakdown.scenario, evidence.topRecommendation.breakdown.content, evidence.topRecommendation.breakdown.timePlace);
+
+  const body = document.createElement('div');
+  body.className = 'inspector-edge';
+  body.innerHTML = `
+    <p><strong>Dominant signals</strong></p>
+    <div class="decision-signals">
+      ${evidence.dominantSignals.map((signal) => `<span class="signal-pill">${signal}</span>`).join(' ')}
+    </div>
+    <p><strong>Score breakdown</strong></p>
+    ${bar('base', evidence.topRecommendation.breakdown.base, maxScore, '#60a5fa')}
+    ${bar('scenario', evidence.topRecommendation.breakdown.scenario, maxScore, '#a78bfa')}
+    ${bar('content', evidence.topRecommendation.breakdown.content, maxScore, '#f59e0b')}
+    ${bar('time/place', evidence.topRecommendation.breakdown.timePlace, maxScore, '#34d399')}
+    <p><strong>Top ranking ladder</strong></p>
+    <ol class="decision-ranking">
+      ${evidence.ranked.slice(0, 4).map((item) => `<li>${item.candidate.label} <span>${item.score}</span></li>`).join('')}
+    </ol>
+    <p class="decision-note">결정은 단일 규칙이 아니라 scenario + content + runtime context를 합산한 결과입니다.</p>
+  `;
+
+  container.append(header, meta, body);
+  graphInspector.replaceChildren(titleNode('Graph Inspector'), container);
+};
+
+const renderDefaultInspector = (viz: GraphViz, evidence: ReturnType<typeof buildDecisionEvidence>): void => {
+  const container = document.createElement('div');
+  container.className = 'inspector-body';
+  container.innerHTML = `
+    <div class="inspector-header">
+      <p class="chip">OVERVIEW</p>
+      <h4>Hover or click a node</h4>
+      <p>현재 working graph는 PDE 장기 컨텍스트와 CE 실시간 컨텍스트를 결합합니다.</p>
+    </div>
+    <div class="inspector-meta">
+      <span>${viz.summary}</span>
+      <span>nodes: ${viz.nodes.length}</span>
+      <span>edges: ${viz.edges.length}</span>
+      <span>top: ${evidence.topRecommendation.candidate.label}</span>
+      <span>score: ${evidence.topRecommendation.score}</span>
+    </div>
+    <div class="inspector-edge">
+      <p>노드를 클릭하면 neighborhood를 고정할 수 있고, 엣지 위로 이동하면 해당 triple을 볼 수 있습니다.</p>
+      <p><strong>Current decision</strong>: ${evidence.topRecommendation.candidate.label} (${evidence.topRecommendation.score})</p>
+    </div>
+  `;
+  graphInspector.replaceChildren(titleNode('Graph Inspector'), container);
+};
+
+const bindGraphInteractions = (graphView: HTMLElement, viz: GraphViz, evidence: ReturnType<typeof buildDecisionEvidence>): void => {
+  const svg = graphView.querySelector<SVGSVGElement>('svg');
+  if (!svg) return;
+
+  const nodeElements = Array.from(svg.querySelectorAll<SVGGElement>('[data-node-key]'));
+  const edgeElements = Array.from(svg.querySelectorAll<SVGGElement>('[data-edge-key]'));
+  const nodeByKey = new Map(viz.nodes.map((node) => [node.key, node] as const));
+  const edgeByKey = new Map(viz.edges.map((edge) => [edge.key, edge] as const));
+  const edgeKeysByNode = new Map<string, ReadonlyArray<string>>();
+
+  const allNodeKeys = viz.nodes.map((node) => node.key);
+  for (const nodeKey of allNodeKeys) {
+    const keys: string[] = [];
+    viz.edges.forEach((edge) => {
+      if (edge.sourceKey === nodeKey || edge.targetKey === nodeKey) keys.push(edge.key);
+    });
+    edgeKeysByNode.set(nodeKey, keys);
+  }
+
+  const connectedNodeKeys = (focus: string): Set<string> => {
+    const set = new Set<string>([focus]);
+    viz.edges.forEach((edge) => {
+      if (edge.sourceKey === focus) set.add(edge.targetKey);
+      if (edge.targetKey === focus) set.add(edge.sourceKey);
+    });
+    return set;
+  };
+
+  const connectedEdgeKeys = (focus: string): Set<string> => new Set(edgeKeysByNode.get(focus) ?? []);
+
+  type Focus = Readonly<{ type: 'node' | 'edge'; key: string }>;
+  let pinned: Focus | null = null;
+
+  const applyFocus = (focus: Focus | null, source: 'hover' | 'pin' | 'default'): void => {
+    if (!focus) {
+      nodeElements.forEach((el) => {
+        el.classList.remove('is-dimmed', 'is-selected', 'is-connected');
+      });
+      edgeElements.forEach((el) => {
+        el.classList.remove('is-dimmed', 'is-selected', 'is-connected');
+      });
+      renderDefaultInspector(viz, evidence);
+      if (source !== 'pin') {
+        svg.removeAttribute('data-focus');
+      }
+      return;
+    }
+
+    svg.setAttribute('data-focus', focus.type);
+
+    if (focus.type === 'node') {
+      const connectedNodes = connectedNodeKeys(focus.key);
+      const connectedEdges = connectedEdgeKeys(focus.key);
+      nodeElements.forEach((el) => {
+        const key = el.dataset.nodeKey ?? '';
+        el.classList.toggle('is-selected', key === focus.key);
+        el.classList.toggle('is-connected', connectedNodes.has(key));
+        el.classList.toggle('is-dimmed', key !== focus.key && !connectedNodes.has(key));
+      });
+      edgeElements.forEach((el) => {
+        const key = el.dataset.edgeKey ?? '';
+        el.classList.toggle('is-selected', connectedEdges.has(key));
+        el.classList.toggle('is-connected', connectedEdges.has(key));
+        el.classList.toggle('is-dimmed', !connectedEdges.has(key));
+      });
+      const node = nodeByKey.get(focus.key);
+      if (node) {
+        if (node.kind === 'decision') {
+          renderDecisionInspector(evidence);
+        } else {
+          renderNodeInspector(node, viz);
+        }
+      }
+      return;
+    }
+
+    const edge = edgeByKey.get(focus.key);
+    if (!edge) return;
+    nodeElements.forEach((el) => {
+      const key = el.dataset.nodeKey ?? '';
+      const active = key === edge.sourceKey || key === edge.targetKey;
+      el.classList.toggle('is-selected', active);
+      el.classList.toggle('is-connected', active);
+      el.classList.toggle('is-dimmed', !active);
+    });
+    edgeElements.forEach((el) => {
+      const key = el.dataset.edgeKey ?? '';
+      el.classList.toggle('is-selected', key === edge.key);
+      el.classList.toggle('is-connected', key === edge.key);
+      el.classList.toggle('is-dimmed', key !== edge.key);
+    });
+    renderEdgeInspector(edge);
+  };
+
+  nodeElements.forEach((el) => {
+    const key = el.dataset.nodeKey;
+    if (!key) return;
+    el.addEventListener('pointerenter', () => {
+      if (pinned) return;
+      applyFocus({ type: 'node', key }, 'hover');
+    });
+    el.addEventListener('pointerleave', () => {
+      if (pinned) return;
+      applyFocus(null, 'default');
+    });
+    el.addEventListener('focus', () => {
+      if (pinned) return;
+      applyFocus({ type: 'node', key }, 'hover');
+    });
+    el.addEventListener('blur', () => {
+      if (pinned) return;
+      applyFocus(null, 'default');
+    });
+    el.addEventListener('click', (event) => {
+      event.stopPropagation();
+      pinned = pinned?.type === 'node' && pinned.key === key ? null : { type: 'node', key };
+      applyFocus(pinned, 'pin');
+    });
+  });
+
+  edgeElements.forEach((el) => {
+    const key = el.dataset.edgeKey;
+    if (!key) return;
+    el.addEventListener('pointerenter', () => {
+      if (pinned) return;
+      applyFocus({ type: 'edge', key }, 'hover');
+    });
+    el.addEventListener('pointerleave', () => {
+      if (pinned) return;
+      applyFocus(null, 'default');
+    });
+    el.addEventListener('focus', () => {
+      if (pinned) return;
+      applyFocus({ type: 'edge', key }, 'hover');
+    });
+    el.addEventListener('blur', () => {
+      if (pinned) return;
+      applyFocus(null, 'default');
+    });
+  });
+
+  svg.addEventListener('click', (event) => {
+    if (event.target === svg) {
+      pinned = null;
+      applyFocus(null, 'default');
+    }
+  });
+
+  renderDefaultInspector(viz, evidence);
+};
+
+const readInput = (): { scenario: ScenarioKey; input: ContextInput } => ({
+  scenario: scenarioSelect.value as ScenarioKey,
+  input: {
+    contentType: contentTypeSelect.value as ContextInput['contentType'],
+    sourceApp: sourceAppSelect.value as ContextInput['sourceApp'],
+    timeBand: timeBandSelect.value as ContextInput['timeBand'],
+    place: placeSelect.value as ContextInput['place'],
+  },
+});
+
+const render = (): void => {
+  const { scenario, input } = readInput();
+  const graph = buildContextGraph(scenario, input);
+  const ranked = rankCandidates(scenario, input);
+  const explanation = explanationFor(scenario, input, graph);
+  const decisionEvidence = buildDecisionEvidence(scenario, input);
+  const graphViz = renderGraphViz(graph);
+
+  const graphView = document.createElement('div');
+  graphView.className = 'graph-view';
+  graphView.innerHTML = graphViz.svg;
+
+  const graphMeta = document.createElement('div');
+  graphMeta.className = 'graph-meta';
+  graphMeta.innerHTML = `
+    <p><strong>${graphViz.summary}</strong></p>
+    <details>
+      <summary>RDF triples 보기</summary>
+      <pre class="graph">${renderGraph(graph).join('\n')}</pre>
+    </details>
+  `;
+
+  graphCard.replaceChildren(titleNode('Context Graph'), graphView, graphMeta);
+  bindGraphInteractions(graphView, graphViz, decisionEvidence);
+
+  const rankingList = document.createElement('ol');
+  rankingList.className = 'ranking';
+  ranked.slice(0, 5).forEach((item) => {
+    const li = document.createElement('li');
+    li.innerHTML = `<strong>${item.candidate.label}</strong> <span class="score">${item.score}</span><br/><small>${item.reasons.join(' · ') || 'base prior only'}</small>`;
+    rankingList.appendChild(li);
+  });
+  rankingCard.replaceChildren(titleNode('Top Recommendations'), rankingList);
+
+  const explanationBlock = document.createElement('div');
+  explanationBlock.className = 'explain';
+  explanationBlock.innerHTML = `
+    <p><strong>${explanation.scenarioLabel}</strong></p>
+    <p>${explanation.summary}</p>
+    <ul>
+      ${explanation.contextLines.map((line) => `<li>${line}</li>`).join('')}
+    </ul>
+    <p>graph size: ${explanation.graphSize} triples</p>
+  `;
+  explanationCard.replaceChildren(titleNode('Why this ranking?'), explanationBlock);
+
+  const notes = document.createElement('div');
+  notes.className = 'notes';
+  notes.innerHTML = `
+    <ul>
+      <li>PDE는 장기 관계/affinity를 제공합니다.</li>
+      <li>CE는 현재 시간/장소/앱 상태를 제공합니다.</li>
+      <li>Context Graph는 두 정보를 합친 working graph입니다.</li>
+      <li>RDF triple은 설명 가능성과 질의 가능성을 높입니다.</li>
+      <li>fp-ts는 순수 함수 기반 조립/정렬에 사용됩니다.</li>
+    </ul>
+    <p>후보: ${candidates.length}개</p>
+  `;
+  legendCard.replaceChildren(titleNode('Design Notes'), notes);
+};
+
+scenarioSelect.addEventListener('change', () => {
+  setDefaults(scenarioSelect.value as ScenarioKey);
+  render();
+});
+
+[contentTypeSelect, sourceAppSelect, timeBandSelect, placeSelect].forEach((el) => el.addEventListener('change', render));
+runButton.addEventListener('click', render);
+
+setDefaults('family-photo');
+render();
+
+function labelWrap(label: string, input: HTMLSelectElement): HTMLLabelElement {
+  const wrapper = document.createElement('label');
+  wrapper.className = 'field';
+  const title = document.createElement('span');
+  title.textContent = label;
+  wrapper.append(title, input);
+  return wrapper;
+}
+
+function card(title: string): HTMLElement {
+  const section = document.createElement('section');
+  section.className = 'panel';
+  section.innerHTML = `<h2>${title}</h2>`;
+  return section;
+}
+
+function titleNode(text: string): HTMLHeadingElement {
+  const h = document.createElement('h3');
+  h.textContent = text;
+  return h;
+}
+

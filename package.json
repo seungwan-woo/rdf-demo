@@ -1,0 +1,20 @@
+{
+  "name": "rdf-demo",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "deploy": "npm run build"
+  },
+  "dependencies": {
+    "fp-ts": "^2.16.9"
+  },
+  "devDependencies": {
+    "@types/node": "^24.2.0",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.4"
+  }
+}
