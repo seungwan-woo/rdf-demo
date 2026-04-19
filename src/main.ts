@@ -1,6 +1,7 @@
 import { buildContextGraph, buildDecisionEvidence, candidates, explanationFor, rankCandidates, scenarioDefaults, type ContextInput, type ScenarioKey } from './domain';
 import { renderGraph } from './rdf';
 import { renderGraphViz, type GraphViz, type GraphVizEdge, type GraphVizNode } from './graph-viz';
+import { buildLabelCatalog, describeRdfTerm, formatContextLine, optionLabel } from './labels';
 import './style.css';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -10,10 +11,12 @@ if (!app) {
 }
 
 const scenarioOptions: ReadonlyArray<{ value: ScenarioKey; label: string }> = [
-  { value: 'family-photo', label: '가족 사진 공유' },
-  { value: 'work-doc', label: '업무 문서 공유' },
-  { value: 'social-link', label: '링크 공유' },
+  { value: 'family-photo', label: '가족 사진 공유 (Family photo share)' },
+  { value: 'work-doc', label: '업무 문서 공유 (Work document share)' },
+  { value: 'social-link', label: '링크 공유 (Social link share)' },
 ];
+
+const labels = buildLabelCatalog();
 
 const section = document.createElement('main');
 section.className = 'shell';
@@ -21,17 +24,17 @@ section.className = 'shell';
 section.innerHTML = `
   <header class="hero">
     <div>
-      <p class="eyebrow">RDF + fp-ts + TypeScript</p>
-      <h1>Sharesheet Recommendation Demo</h1>
-      <p class="subtitle">PDE(장기 컨텍스트) + CE(실시간 컨텍스트)를 RDF working graph로 묶어 추천 순위를 계산합니다.</p>
+      <p class="eyebrow">${labels.heroEyebrow}</p>
+      <h1>${labels.heroTitle}</h1>
+      <p class="subtitle">${labels.heroSubtitle}</p>
     </div>
-    <div class="badge">GitHub Pages ready</div>
+    <div class="badge">${labels.githubPagesBadge}</div>
   </header>
 `;
 
 const controls = document.createElement('section');
 controls.className = 'panel';
-controls.innerHTML = '<h2>Context Input</h2>';
+controls.innerHTML = `<h2>${labels.controlsTitle}</h2>`;
 
 const scenarioSelect = document.createElement('select');
 scenarioSelect.className = 'wide';
@@ -45,52 +48,52 @@ scenarioSelect.value = 'family-photo';
 
 const contentTypeSelect = document.createElement('select');
 contentTypeSelect.className = 'wide';
-for (const value of ['image', 'document', 'link']) {
+for (const value of ['image', 'document', 'link'] as const) {
   const option = document.createElement('option');
   option.value = value;
-  option.textContent = value;
+  option.textContent = optionLabel('contentType', value);
   contentTypeSelect.appendChild(option);
 }
 
 const sourceAppSelect = document.createElement('select');
 sourceAppSelect.className = 'wide';
-for (const value of ['gallery', 'mail', 'browser', 'chat']) {
+for (const value of ['gallery', 'mail', 'browser', 'chat'] as const) {
   const option = document.createElement('option');
   option.value = value;
-  option.textContent = value;
+  option.textContent = optionLabel('sourceApp', value);
   sourceAppSelect.appendChild(option);
 }
 
 const timeBandSelect = document.createElement('select');
 timeBandSelect.className = 'wide';
-for (const value of ['morning', 'afternoon', 'evening']) {
+for (const value of ['morning', 'afternoon', 'evening'] as const) {
   const option = document.createElement('option');
   option.value = value;
-  option.textContent = value;
+  option.textContent = optionLabel('timeBand', value);
   timeBandSelect.appendChild(option);
 }
 
 const placeSelect = document.createElement('select');
 placeSelect.className = 'wide';
-for (const value of ['home', 'office', 'moving']) {
+for (const value of ['home', 'office', 'moving'] as const) {
   const option = document.createElement('option');
   option.value = value;
-  option.textContent = value;
+  option.textContent = optionLabel('place', value);
   placeSelect.appendChild(option);
 }
 
 const runButton = document.createElement('button');
 runButton.className = 'primary';
-runButton.textContent = 'Recommendation Run';
+runButton.textContent = labels.runButton;
 
 const form = document.createElement('div');
 form.className = 'grid';
 form.append(
-  labelWrap('Scenario', scenarioSelect),
-  labelWrap('Content Type', contentTypeSelect),
-  labelWrap('Source App', sourceAppSelect),
-  labelWrap('Time Band', timeBandSelect),
-  labelWrap('Place', placeSelect),
+  labelWrap('시나리오 (Scenario)', scenarioSelect),
+  labelWrap(formatContextLine('contentType', contentTypeSelect.value).split(':')[0]!, contentTypeSelect),
+  labelWrap(formatContextLine('sourceApp', sourceAppSelect.value).split(':')[0]!, sourceAppSelect),
+  labelWrap(formatContextLine('timeBand', timeBandSelect.value).split(':')[0]!, timeBandSelect),
+  labelWrap(formatContextLine('place', placeSelect.value).split(':')[0]!, placeSelect),
   runButton,
 );
 
@@ -99,13 +102,13 @@ controls.appendChild(form);
 const output = document.createElement('section');
 output.className = 'output-grid';
 
-const graphCard = card('Context Graph');
+const graphCard = card(labels.graphTitle);
 const graphInspector = document.createElement('section');
 graphInspector.className = 'panel graph-inspector';
 
-const rankingCard = card('Ranking');
-const explanationCard = card('Explanation');
-const legendCard = card('Design Notes');
+const rankingCard = card(labels.rankingTitle);
+const explanationCard = card(labels.explanationTitle);
+const legendCard = card(labels.designNotesTitle);
 
 const graphColumn = document.createElement('section');
 graphColumn.className = 'graph-column';
@@ -127,18 +130,18 @@ const setDefaults = (scenario: ScenarioKey): void => {
 const kindLabel = (kind: GraphVizNode['kind']): string => {
   switch (kind) {
     case 'ctx':
-      return 'Working Context';
+      return describeRdfTerm('Working Context');
     case 'pde':
-      return 'PDE / Long-term';
+      return describeRdfTerm('PDE / Long-term');
     case 'ce':
-      return 'CE / Runtime';
+      return describeRdfTerm('CE / Runtime');
     case 'decision':
-      return 'Decision / Outcome';
+      return describeRdfTerm('Decision / Outcome');
     case 'literal':
-      return 'Literal Evidence';
+      return describeRdfTerm('Literal Evidence');
     case 'other':
     default:
-      return 'Other';
+      return describeRdfTerm('Other');
   }
 };
 
@@ -177,7 +180,7 @@ const renderNodeInspector = (node: GraphVizNode, viz: GraphViz): void => {
 
   const meta = document.createElement('div');
   meta.className = 'inspector-meta';
-  meta.innerHTML = `<span>${outgoing.length} outgoing</span><span>${incoming.length} incoming</span><span>${relatedNodeKeys.size} connected nodes</span>`;
+  meta.innerHTML = `<span>나가는 연결 ${outgoing.length}개 (outgoing)</span><span>들어오는 연결 ${incoming.length}개 (incoming)</span><span>연결 노드 ${relatedNodeKeys.size}개 (connected nodes)</span>`;
 
   const outgoingList = makeList(
     outgoing.map((edge) => `${edge.predicate} → ${edge.targetLabel}`),
@@ -190,7 +193,7 @@ const renderNodeInspector = (node: GraphVizNode, viz: GraphViz): void => {
 
   const related = document.createElement('div');
   related.className = 'inspector-related';
-  related.innerHTML = '<h5>Neighborhood</h5>';
+  related.innerHTML = '<h5>이웃 노드 (Neighborhood)</h5>';
   related.append(
     makeList(
       Array.from(relatedNodeKeys).map((key) => {
@@ -205,16 +208,16 @@ const renderNodeInspector = (node: GraphVizNode, viz: GraphViz): void => {
   sections.className = 'inspector-sections';
 
   const outgoingBlock = document.createElement('section');
-  outgoingBlock.innerHTML = '<h5>Outgoing evidence</h5>';
+  outgoingBlock.innerHTML = '<h5>나가는 증거 (Outgoing evidence)</h5>';
   outgoingBlock.append(outgoingList);
 
   const incomingBlock = document.createElement('section');
-  incomingBlock.innerHTML = '<h5>Incoming evidence</h5>';
+  incomingBlock.innerHTML = '<h5>들어오는 증거 (Incoming evidence)</h5>';
   incomingBlock.append(incomingList);
 
   sections.append(outgoingBlock, incomingBlock);
   container.append(header, meta, sections, related);
-  graphInspector.replaceChildren(titleNode('Graph Inspector'), container);
+  graphInspector.replaceChildren(titleNode(labels.graphInspectorTitle), container);
 };
 
 const renderEdgeInspector = (edge: GraphVizEdge): void => {
@@ -223,25 +226,25 @@ const renderEdgeInspector = (edge: GraphVizEdge): void => {
   const header = document.createElement('div');
   header.className = 'inspector-header';
   header.innerHTML = `
-    <p class="chip">EDGE EVIDENCE</p>
+    <p class="chip">엣지 증거 (EDGE EVIDENCE)</p>
     <h4>${edge.predicate}</h4>
     <p>${edge.sourceLabel} → ${edge.targetLabel}</p>
   `;
 
   const meta = document.createElement('div');
   meta.className = 'inspector-meta';
-  meta.innerHTML = '<span>triple</span><span>predicate</span><span>relation</span>';
+  meta.innerHTML = '<span>트리플 (triple)</span><span>술어 (predicate)</span><span>관계 (relation)</span>';
 
   const body = document.createElement('div');
   body.className = 'inspector-edge';
   body.innerHTML = `
-    <p><strong>RDF triple</strong></p>
+    <p><strong>RDF 트리플 (RDF triple)</strong></p>
     <pre class="graph">${edge.sourceLabel} ${edge.predicate} ${edge.targetLabel} .</pre>
-    <p>이 edge는 node 간 evidence link를 설명합니다.</p>
+    <p>이 엣지는 노드 사이의 증거 연결(evidence link)을 설명합니다.</p>
   `;
 
   container.append(header, meta, body);
-  graphInspector.replaceChildren(titleNode('Graph Inspector'), container);
+  graphInspector.replaceChildren(titleNode(labels.graphInspectorTitle), container);
 };
 
 const renderDecisionInspector = (evidence: ReturnType<typeof buildDecisionEvidence>): void => {
@@ -251,7 +254,7 @@ const renderDecisionInspector = (evidence: ReturnType<typeof buildDecisionEviden
   const header = document.createElement('div');
   header.className = 'inspector-header';
   header.innerHTML = `
-    <p class="chip">DECISION BASIS</p>
+    <p class="chip">의사결정 근거 (DECISION BASIS)</p>
     <h4>${evidence.topRecommendation.candidate.label}</h4>
     <p>${evidence.scenarioLabel}에서 가장 높은 점수를 받은 후보입니다.</p>
   `;
@@ -281,24 +284,24 @@ const renderDecisionInspector = (evidence: ReturnType<typeof buildDecisionEviden
   const body = document.createElement('div');
   body.className = 'inspector-edge';
   body.innerHTML = `
-    <p><strong>Dominant signals</strong></p>
+    <p><strong>지배적인 신호 (Dominant signals)</strong></p>
     <div class="decision-signals">
       ${evidence.dominantSignals.map((signal) => `<span class="signal-pill">${signal}</span>`).join(' ')}
     </div>
-    <p><strong>Score breakdown</strong></p>
-    ${bar('base', evidence.topRecommendation.breakdown.base, maxScore, '#60a5fa')}
-    ${bar('scenario', evidence.topRecommendation.breakdown.scenario, maxScore, '#a78bfa')}
-    ${bar('content', evidence.topRecommendation.breakdown.content, maxScore, '#f59e0b')}
-    ${bar('time/place', evidence.topRecommendation.breakdown.timePlace, maxScore, '#34d399')}
-    <p><strong>Top ranking ladder</strong></p>
+    <p><strong>점수 분해 (Score breakdown)</strong></p>
+    ${bar('기본값 base', evidence.topRecommendation.breakdown.base, maxScore, '#60a5fa')}
+    ${bar('시나리오 scenario', evidence.topRecommendation.breakdown.scenario, maxScore, '#a78bfa')}
+    ${bar('콘텐츠 content', evidence.topRecommendation.breakdown.content, maxScore, '#f59e0b')}
+    ${bar('시간/장소 time/place', evidence.topRecommendation.breakdown.timePlace, maxScore, '#34d399')}
+    <p><strong>상위 랭킹 사다리 (Top ranking ladder)</strong></p>
     <ol class="decision-ranking">
       ${evidence.ranked.slice(0, 4).map((item) => `<li>${item.candidate.label} <span>${item.score}</span></li>`).join('')}
     </ol>
-    <p class="decision-note">결정은 단일 규칙이 아니라 scenario + content + runtime context를 합산한 결과입니다.</p>
+    <p class="decision-note">의사결정은 단일 규칙이 아니라 시나리오, 콘텐츠, 런타임 컨텍스트를 합산한 결과입니다.</p>
   `;
 
   container.append(header, meta, body);
-  graphInspector.replaceChildren(titleNode('Graph Inspector'), container);
+  graphInspector.replaceChildren(titleNode(labels.graphInspectorTitle), container);
 };
 
 const renderDefaultInspector = (viz: GraphViz, evidence: ReturnType<typeof buildDecisionEvidence>): void => {
@@ -306,9 +309,9 @@ const renderDefaultInspector = (viz: GraphViz, evidence: ReturnType<typeof build
   container.className = 'inspector-body';
   container.innerHTML = `
     <div class="inspector-header">
-      <p class="chip">OVERVIEW</p>
-      <h4>Hover or click a node</h4>
-      <p>현재 working graph는 PDE 장기 컨텍스트와 CE 실시간 컨텍스트를 결합합니다.</p>
+      <p class="chip">개요 (OVERVIEW)</p>
+      <h4>노드를 hover하거나 클릭하세요 (Hover or click a node)</h4>
+      <p>현재 작업 그래프(working graph)는 PDE 장기 컨텍스트와 CE 실시간 컨텍스트를 결합합니다.</p>
     </div>
     <div class="inspector-meta">
       <span>${viz.summary}</span>
@@ -318,11 +321,11 @@ const renderDefaultInspector = (viz: GraphViz, evidence: ReturnType<typeof build
       <span>score: ${evidence.topRecommendation.score}</span>
     </div>
     <div class="inspector-edge">
-      <p>노드를 클릭하면 neighborhood를 고정할 수 있고, 엣지 위로 이동하면 해당 triple을 볼 수 있습니다.</p>
-      <p><strong>Current decision</strong>: ${evidence.topRecommendation.candidate.label} (${evidence.topRecommendation.score})</p>
+      <p>노드를 클릭하면 이웃(neighborhood)을 고정할 수 있고, 엣지 위로 이동하면 해당 트리플(triple)을 볼 수 있습니다.</p>
+      <p><strong>현재 결정 (Current decision)</strong>: ${evidence.topRecommendation.candidate.label} (${evidence.topRecommendation.score})</p>
     </div>
   `;
-  graphInspector.replaceChildren(titleNode('Graph Inspector'), container);
+  graphInspector.replaceChildren(titleNode(labels.graphInspectorTitle), container);
 };
 
 const bindGraphInteractions = (graphView: HTMLElement, viz: GraphViz, evidence: ReturnType<typeof buildDecisionEvidence>): void => {
@@ -503,22 +506,22 @@ const render = (): void => {
   graphMeta.innerHTML = `
     <p><strong>${graphViz.summary}</strong></p>
     <details>
-      <summary>RDF triples 보기</summary>
+      <summary>${labels.rdfTriplesSummary}</summary>
       <pre class="graph">${renderGraph(graph).join('\n')}</pre>
     </details>
   `;
 
-  graphCard.replaceChildren(titleNode('Context Graph'), graphView, graphMeta);
+  graphCard.replaceChildren(titleNode(labels.graphTitle), graphView, graphMeta);
   bindGraphInteractions(graphView, graphViz, decisionEvidence);
 
   const rankingList = document.createElement('ol');
   rankingList.className = 'ranking';
   ranked.slice(0, 5).forEach((item) => {
     const li = document.createElement('li');
-    li.innerHTML = `<strong>${item.candidate.label}</strong> <span class="score">${item.score}</span><br/><small>${item.reasons.join(' · ') || 'base prior only'}</small>`;
+    li.innerHTML = `<strong>${item.candidate.label}</strong> <span class="score">${item.score}</span><br/><small>${item.reasons.join(' · ') || '기본 prior만 반영 (base prior only)'}</small>`;
     rankingList.appendChild(li);
   });
-  rankingCard.replaceChildren(titleNode('Top Recommendations'), rankingList);
+  rankingCard.replaceChildren(titleNode(labels.rankingTitle), rankingList);
 
   const explanationBlock = document.createElement('div');
   explanationBlock.className = 'explain';
@@ -526,25 +529,30 @@ const render = (): void => {
     <p><strong>${explanation.scenarioLabel}</strong></p>
     <p>${explanation.summary}</p>
     <ul>
-      ${explanation.contextLines.map((line) => `<li>${line}</li>`).join('')}
+      ${[
+        formatContextLine('contentType', input.contentType),
+        formatContextLine('sourceApp', input.sourceApp),
+        formatContextLine('timeBand', input.timeBand),
+        formatContextLine('place', input.place),
+      ].map((line) => `<li>${line}</li>`).join('')}
     </ul>
-    <p>graph size: ${explanation.graphSize} triples</p>
+    <p>${labels.graphSize}: ${explanation.graphSize} triples</p>
   `;
-  explanationCard.replaceChildren(titleNode('Why this ranking?'), explanationBlock);
+  explanationCard.replaceChildren(titleNode(labels.explanationTitle), explanationBlock);
 
   const notes = document.createElement('div');
   notes.className = 'notes';
   notes.innerHTML = `
     <ul>
-      <li>PDE는 장기 관계/affinity를 제공합니다.</li>
-      <li>CE는 현재 시간/장소/앱 상태를 제공합니다.</li>
-      <li>Context Graph는 두 정보를 합친 working graph입니다.</li>
-      <li>RDF triple은 설명 가능성과 질의 가능성을 높입니다.</li>
-      <li>fp-ts는 순수 함수 기반 조립/정렬에 사용됩니다.</li>
+      <li>PDE는 장기 관계와 친밀도(affinity)를 제공합니다.</li>
+      <li>CE는 현재 시간, 장소, 앱 상태를 제공합니다.</li>
+      <li>컨텍스트 그래프(Context Graph)는 두 정보를 합친 작업 그래프입니다.</li>
+      <li>RDF 트리플은 설명 가능성과 질의 가능성을 높입니다.</li>
+      <li>fp-ts는 순수 함수 기반 조립과 정렬에 사용됩니다.</li>
     </ul>
     <p>후보: ${candidates.length}개</p>
   `;
-  legendCard.replaceChildren(titleNode('Design Notes'), notes);
+  legendCard.replaceChildren(titleNode(labels.designNotesTitle), notes);
 };
 
 scenarioSelect.addEventListener('change', () => {

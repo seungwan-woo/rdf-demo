@@ -1,3 +1,4 @@
+import { describeRdfTerm } from './labels';
 import type { Graph, Term } from './rdf';
 
 export type GraphVizNodeKind = 'ctx' | 'pde' | 'ce' | 'decision' | 'literal' | 'other';
@@ -44,15 +45,15 @@ const escapeXml = (value: string): string =>
     .replace(/"/g, '&quot;');
 
 const labelOf = (term: Term): string => {
-  if (term.kind === 'literal') return term.value;
-  if (term.kind === 'blank') return `_:${term.value}`;
+  if (term.termType === 'Literal') return term.value;
+  if (term.termType === 'BlankNode') return `_:${term.value}`;
   const colon = term.value.indexOf(':');
   return colon >= 0 ? term.value.slice(colon + 1) : term.value;
 };
 
 const kindOf = (term: Term): GraphVizNodeKind => {
-  if (term.kind === 'literal') return 'literal';
-  if (term.kind === 'blank') return 'decision';
+  if (term.termType === 'Literal') return 'literal';
+  if (term.termType === 'BlankNode') return 'decision';
   if (term.value.startsWith('ctx:')) return 'ctx';
   if (term.value.startsWith('pde:')) return 'pde';
   if (term.value.startsWith('ce:')) return 'ce';
@@ -60,7 +61,7 @@ const kindOf = (term: Term): GraphVizNodeKind => {
   return 'other';
 };
 
-const keyOf = (term: Term): string => `${term.kind}:${term.value}`;
+const keyOf = (term: Term): string => `${term.termType}:${term.value}`;
 
 const hashInt = (value: string): number => {
   let h = 0;
@@ -93,18 +94,18 @@ const anchorFor = (kind: GraphVizNodeKind): { x: number; y: number } => {
 const groupLabelFor = (kind: GraphVizNodeKind): string => {
   switch (kind) {
     case 'ctx':
-      return 'Working Context';
+      return describeRdfTerm('Working Context');
     case 'pde':
-      return 'PDE / Long-term';
+      return describeRdfTerm('PDE / Long-term');
     case 'ce':
-      return 'CE / Runtime';
+      return describeRdfTerm('CE / Runtime');
     case 'decision':
-      return 'Decision & Outcome';
+      return describeRdfTerm('Decision & Outcome');
     case 'literal':
-      return 'Literal Evidence';
+      return describeRdfTerm('Literal Evidence');
     case 'other':
     default:
-      return 'Other';
+      return describeRdfTerm('Other');
   }
 };
 
@@ -129,18 +130,18 @@ const colorFor = (kind: GraphVizNodeKind): { fill: string; stroke: string; glow:
 const nodeSummary = (kind: GraphVizNodeKind): string => {
   switch (kind) {
     case 'ctx':
-      return 'share intent and runtime fusion';
+      return '공유 의도와 실시간 신호를 결합한 중심 노드 (share intent and runtime fusion)';
     case 'pde':
-      return 'long-term relationship / affinity evidence';
+      return '장기 관계와 친밀도 증거를 담는 노드 (long-term relationship / affinity evidence)';
     case 'ce':
-      return 'time / place / device runtime signals';
+      return '시간, 장소, 디바이스 상태를 담는 노드 (time / place / device runtime signals)';
     case 'decision':
-      return 'ranking, outcome, feedback loop';
+      return '순위, 결과, 피드백 루프를 표현하는 노드 (ranking, outcome, feedback loop)';
     case 'literal':
-      return 'typed literal evidence';
+      return '문자열 값 같은 리터럴 증거 (typed literal evidence)';
     case 'other':
     default:
-      return 'auxiliary node';
+      return '보조 노드 (auxiliary node)';
   }
 };
 
@@ -389,9 +390,9 @@ export const renderGraphViz = (graph: Graph): GraphViz => {
 
   const backgroundLabels = `
     <g class="kg-lane-labels">
-      <text x="88" y="96">PDE / long-term memory</text>
-      <text x="912" y="96" text-anchor="end">CE / runtime signals</text>
-      <text x="600" y="652" text-anchor="middle">Decision / outcome loop</text>
+      <text x="88" y="96">PDE / 장기 기억 (long-term memory)</text>
+      <text x="912" y="96" text-anchor="end">CE / 실시간 신호 (runtime signals)</text>
+      <text x="600" y="652" text-anchor="middle">의사결정 / 결과 루프 (decision / outcome loop)</text>
     </g>
   `;
 
@@ -435,15 +436,15 @@ export const renderGraphViz = (graph: Graph): GraphViz => {
       </defs>
       <rect x="1" y="1" width="${width - 2}" height="${height - 2}" rx="22" ry="22" fill="#020617" stroke="#1e293b" stroke-width="2" />
       <rect x="1" y="1" width="${width - 2}" height="${height - 2}" rx="22" ry="22" fill="url(#grid)" opacity="0.55" />
-      <text x="28" y="38" class="graph-title">Working Context Graph</text>
-      <text x="28" y="60" class="graph-subtitle">Force-directed layout · hover for evidence · click to pin neighborhood</text>
+      <text x="28" y="38" class="graph-title">컨텍스트 그래프 (Context Graph)</text>
+      <text x="28" y="60" class="graph-subtitle">힘 기반 레이아웃 · 증거는 hover · 클릭하면 주변 노드 고정 (Force-directed layout · hover for evidence · click to pin neighborhood)</text>
       ${backgroundLabels}
       ${edgeMarkup}
       ${nodeMarkup}
     </svg>
   `;
 
-  const summary = `${layout.length} nodes / ${edgePairs.length} edges`;
+  const summary = `노드 ${layout.length}개 / 엣지 ${edgePairs.length}개 (nodes / edges)`;
   return { svg, summary, nodes: layout, edges: edgePairs.map((edge, idx) => ({
     key: `edge-${idx}`,
     sourceKey: edge.sourceKey,

@@ -1,31 +1,32 @@
 import { pipe } from 'fp-ts/function';
 import * as A from 'fp-ts/ReadonlyArray';
+import { DataFactory } from 'rdf-data-factory';
+import type * as RDF from '@rdfjs/types';
 
-export type Term =
-  | { readonly kind: 'iri'; readonly value: string }
-  | { readonly kind: 'literal'; readonly value: string }
-  | { readonly kind: 'blank'; readonly value: string };
+const factory = new DataFactory();
 
-export type Triple = Readonly<{
-  subject: Term;
-  predicate: Term;
-  object: Term;
-}>;
-
+export type Term = RDF.Term;
+export type Triple = RDF.Quad;
 export type Graph = ReadonlyArray<Triple>;
 
-export const iri = (value: string): Term => ({ kind: 'iri', value });
-export const literal = (value: string): Term => ({ kind: 'literal', value });
-export const blank = (value: string): Term => ({ kind: 'blank', value });
+export const iri = (value: string): RDF.NamedNode => factory.namedNode(value);
+export const literal = (value: string): RDF.Literal => factory.literal(value);
+export const blank = (value: string): RDF.BlankNode => factory.blankNode(value);
 
-export const triple = (subject: Term, predicate: Term, object: Term): Triple => ({
-  subject,
-  predicate,
-  object,
-});
+export const triple = (subject: RDF.Quad_Subject, predicate: RDF.Quad_Predicate, object: RDF.Quad_Object): Triple =>
+  factory.quad(subject, predicate, object);
 
-const renderTerm = (term: Term): string =>
-  term.kind === 'literal' ? `"${term.value}"` : term.value;
+const renderTerm = (term: RDF.Term): string => {
+  switch (term.termType) {
+    case 'Literal':
+      return `"${term.value}"`;
+    case 'BlankNode':
+      return `_:${term.value}`;
+    case 'NamedNode':
+    default:
+      return term.value;
+  }
+};
 
 export const renderTriple = (t: Triple): string =>
   `${renderTerm(t.subject)} ${renderTerm(t.predicate)} ${renderTerm(t.object)} .`;
