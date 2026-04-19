@@ -2,6 +2,7 @@ import { pipe } from 'fp-ts/function';
 import * as A from 'fp-ts/ReadonlyArray';
 import * as O from 'fp-ts/Option';
 import { blank, Graph, iri, literal, triple, type Triple } from './rdf';
+import type { ShareHistoryEntry } from './share-history';
 
 export type ScenarioKey = 'family-photo' | 'work-doc' | 'social-link';
 
@@ -24,6 +25,7 @@ export type ScoreBreakdown = Readonly<{
   scenario: number;
   content: number;
   timePlace: number;
+  history: number;
   total: number;
 }>;
 
@@ -136,13 +138,41 @@ const timePlaceBonus = (candidate: Candidate, input: ContextInput): number => {
   return timeBonus + placeBonus;
 };
 
-const scoreCandidate = (scenario: ScenarioKey, input: ContextInput, candidate: Candidate): Recommendation => {
+const historySignalScore = (scenario: ScenarioKey, input: ContextInput, entry: ShareHistoryEntry): number => {
+  let score = 0;
+  if (entry.scenario === scenario) score += 4;
+  if (entry.input.contentType === input.contentType) score += 4;
+  if (entry.input.timeBand === input.timeBand) score += 2;
+  if (entry.input.place === input.place) score += 2;
+  if (entry.input.sourceApp === input.sourceApp) score += 2;
+  return score;
+};
+
+export const computeHistoryBonus = (
+  candidateId: string,
+  scenario: ScenarioKey,
+  input: ContextInput,
+  history: ReadonlyArray<ShareHistoryEntry>,
+): number => history
+  .filter((entry) => entry.selectedTargetId === candidateId)
+  .reduce((sum, entry) => sum + historySignalScore(scenario, input, entry), 0);
+
+const scoreCandidate = (
+  scenario: ScenarioKey,
+  input: ContextInput,
+  candidate: Candidate,
+  history: ReadonlyArray<ShareHistoryEntry> = [],
+): Recommendation => {
   const base = baseScore(candidate);
   const scenarioScore = scenarioBonus(candidate, scenario);
   const content = contentBonus(candidate, input);
   const timePlace = timePlaceBonus(candidate, input);
-  const total = base + scenarioScore + content + timePlace;
-  const reasons = featureMatches(candidate, input);
+  const historyBonus = computeHistoryBonus(candidate.id, scenario, input, history);
+  const total = base + scenarioScore + content + timePlace + historyBonus;
+  const reasons = [
+    ...featureMatches(candidate, input),
+    ...(historyBonus > 0 ? [`history bonus (+${historyBonus})`] : []),
+  ];
   return {
     candidate,
     score: total,
@@ -152,23 +182,33 @@ const scoreCandidate = (scenario: ScenarioKey, input: ContextInput, candidate: C
       scenario: scenarioScore,
       content,
       timePlace,
+      history: historyBonus,
       total,
     },
   };
 };
 
-export const rankCandidates = (scenario: ScenarioKey, input: ContextInput): ReadonlyArray<Recommendation> => {
-  const ranked = pipe(candidates, A.map((candidate) => scoreCandidate(scenario, input, candidate)));
+export const rankCandidates = (
+  scenario: ScenarioKey,
+  input: ContextInput,
+  history: ReadonlyArray<ShareHistoryEntry> = [],
+): ReadonlyArray<Recommendation> => {
+  const ranked = pipe(candidates, A.map((candidate) => scoreCandidate(scenario, input, candidate, history)));
   return [...ranked].sort((a, b) => b.score - a.score || a.candidate.label.localeCompare(b.candidate.label, 'ko'));
 };
 
-export const buildDecisionEvidence = (scenario: ScenarioKey, input: ContextInput): DecisionEvidence => {
-  const ranked = rankCandidates(scenario, input);
+export const buildDecisionEvidence = (
+  scenario: ScenarioKey,
+  input: ContextInput,
+  history: ReadonlyArray<ShareHistoryEntry> = [],
+): DecisionEvidence => {
+  const ranked = rankCandidates(scenario, input, history);
   const dominantSignals = ranked[0]
     ? [
         `scenario=${scenarioLabel[scenario]}`,
         `top=${ranked[0].candidate.label}`,
         `score=${ranked[0].score}`,
+        ...(ranked[0].breakdown.history > 0 ? [`history=+${ranked[0].breakdown.history}`] : []),
         ...ranked[0].reasons.slice(0, 3),
       ]
     : [];

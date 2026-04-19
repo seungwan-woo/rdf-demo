@@ -560,9 +560,9 @@ const render = (): void => {
   const { scenario, input } = readInput();
   const baseGraph = buildContextGraph(scenario, input);
   const graph = appendShareHistoryToGraph(baseGraph, shareHistory);
-  const ranked = rankCandidates(scenario, input);
+  const ranked = rankCandidates(scenario, input, shareHistory);
   const explanation = explanationFor(scenario, input, graph);
-  const decisionEvidence = buildDecisionEvidence(scenario, input);
+  const decisionEvidence = buildDecisionEvidence(scenario, input, shareHistory);
   const graphViz = renderGraphViz(graph);
 
   updateShareTargetOptions(ranked);
@@ -639,7 +639,7 @@ scenarioSelect.addEventListener('change', () => {
 runButton.addEventListener('click', render);
 shareButton.addEventListener('click', () => {
   const { scenario, input } = readInput();
-  const ranked = rankCandidates(scenario, input);
+  const ranked = rankCandidates(scenario, input, shareHistory);
   const selectedTarget = candidates.find((candidate) => candidate.id === shareTargetSelect.value) ?? ranked[0]?.candidate;
   const recommendedTarget = ranked[0]?.candidate;
 
