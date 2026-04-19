@@ -1,1 +1,1 @@
-{"root":["./src/domain.ts","./src/graph-viz.ts","./src/labels.test.ts","./src/labels.ts","./src/main.ts","./src/rdf.ts"],"version":"5.9.3"}
+{"root":["./src/domain.ts","./src/graph-viz.ts","./src/labels.test.ts","./src/labels.ts","./src/main.ts","./src/rdf.ts","./src/share-history.test.ts","./src/share-history.ts"],"version":"5.9.3"}

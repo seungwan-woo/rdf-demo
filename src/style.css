@@ -84,6 +84,13 @@ h1 {
   align-items: end;
 }
 
+.share-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr);
+  gap: 14px;
+  align-items: end;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -115,6 +122,46 @@ h1 {
 
 .primary:hover {
   filter: brightness(1.05);
+}
+
+.share-button {
+  min-height: 50px;
+}
+
+.share-history-panel {
+  margin-top: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(2, 6, 23, 0.72);
+  border-radius: 16px;
+  padding: 14px;
+}
+
+.share-history-head p {
+  margin: 0;
+  color: #cbd5e1;
+}
+
+.share-history-head {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.share-history-list {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 10px;
+}
+
+.share-history-list li {
+  display: grid;
+  gap: 4px;
+}
+
+.share-history-list small,
+.share-history-empty {
+  color: #94a3b8;
 }
 
 .output-grid {
@@ -435,6 +482,7 @@ h1 {
 
 @media (max-width: 1080px) {
   .grid,
+  .share-grid,
   .output-grid {
     grid-template-columns: 1fr;
   }

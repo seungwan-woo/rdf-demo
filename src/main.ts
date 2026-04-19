@@ -1,7 +1,8 @@
-import { buildContextGraph, buildDecisionEvidence, candidates, explanationFor, rankCandidates, scenarioDefaults, type ContextInput, type ScenarioKey } from './domain';
+import { buildContextGraph, buildDecisionEvidence, candidates, explanationFor, rankCandidates, scenarioDefaults, type ContextInput, type Recommendation, type ScenarioKey } from './domain';
 import { renderGraph } from './rdf';
 import { renderGraphViz, type GraphViz, type GraphVizEdge, type GraphVizNode } from './graph-viz';
 import { buildLabelCatalog, describeRdfTerm, formatContextLine, optionLabel } from './labels';
+import { appendShareHistoryToGraph, escapeHtml, loadShareHistory, saveShareHistory, type ShareHistoryEntry } from './share-history';
 import './style.css';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -17,6 +18,8 @@ const scenarioOptions: ReadonlyArray<{ value: ScenarioKey; label: string }> = [
 ];
 
 const labels = buildLabelCatalog();
+let shareHistory: ReadonlyArray<ShareHistoryEntry> = loadShareHistory();
+let shareStatusMessage = '공유 이력은 localStorage에 저장됩니다. (Share history persists to localStorage)';
 
 const section = document.createElement('main');
 section.className = 'shell';
@@ -35,6 +38,10 @@ section.innerHTML = `
 const controls = document.createElement('section');
 controls.className = 'panel';
 controls.innerHTML = `<h2>${labels.controlsTitle}</h2>`;
+
+const shareControls = document.createElement('section');
+shareControls.className = 'panel';
+shareControls.innerHTML = `<h2>${labels.shareControlsTitle}</h2>`;
 
 const scenarioSelect = document.createElement('select');
 scenarioSelect.className = 'wide';
@@ -86,6 +93,16 @@ const runButton = document.createElement('button');
 runButton.className = 'primary';
 runButton.textContent = labels.runButton;
 
+const shareTargetSelect = document.createElement('select');
+shareTargetSelect.className = 'wide';
+
+const shareButton = document.createElement('button');
+shareButton.className = 'primary share-button';
+shareButton.textContent = labels.shareButton;
+
+const shareHistoryPanel = document.createElement('div');
+shareHistoryPanel.className = 'share-history-panel';
+
 const form = document.createElement('div');
 form.className = 'grid';
 form.append(
@@ -97,7 +114,15 @@ form.append(
   runButton,
 );
 
+const shareForm = document.createElement('div');
+shareForm.className = 'share-grid';
+shareForm.append(
+  labelWrap(labels.shareTargetLabel, shareTargetSelect),
+  shareButton,
+);
+
 controls.appendChild(form);
+shareControls.append(shareForm, shareHistoryPanel);
 
 const output = document.createElement('section');
 output.className = 'output-grid';
@@ -116,7 +141,7 @@ graphColumn.append(graphCard, graphInspector);
 
 output.append(graphColumn, rankingCard, explanationCard, legendCard);
 
-section.append(controls, output);
+section.append(controls, shareControls, output);
 app.append(section);
 
 const setDefaults = (scenario: ScenarioKey): void => {
@@ -174,7 +199,7 @@ const renderNodeInspector = (node: GraphVizNode, viz: GraphViz): void => {
   header.className = 'inspector-header';
   header.innerHTML = `
     <p class="chip">${kindLabel(node.kind)}</p>
-    <h4>${node.label}</h4>
+    <h4>${escapeHtml(node.label)}</h4>
     <p>${node.kind === 'ctx' ? '현재 share intent를 구성하는 작업 그래프의 중심 노드입니다.' : node.kind === 'pde' ? '장기 관계와 affinity evidence를 담고 있습니다.' : node.kind === 'ce' ? '실시간 시간/장소/앱 상태를 담고 있습니다.' : node.kind === 'decision' ? '의사결정과 결과 피드백을 기록합니다.' : '보조 evidence 노드입니다.'}</p>
   `;
 
@@ -227,8 +252,8 @@ const renderEdgeInspector = (edge: GraphVizEdge): void => {
   header.className = 'inspector-header';
   header.innerHTML = `
     <p class="chip">엣지 증거 (EDGE EVIDENCE)</p>
-    <h4>${edge.predicate}</h4>
-    <p>${edge.sourceLabel} → ${edge.targetLabel}</p>
+    <h4>${escapeHtml(edge.predicate)}</h4>
+    <p>${escapeHtml(edge.sourceLabel)} → ${escapeHtml(edge.targetLabel)}</p>
   `;
 
   const meta = document.createElement('div');
@@ -239,7 +264,7 @@ const renderEdgeInspector = (edge: GraphVizEdge): void => {
   body.className = 'inspector-edge';
   body.innerHTML = `
     <p><strong>RDF 트리플 (RDF triple)</strong></p>
-    <pre class="graph">${edge.sourceLabel} ${edge.predicate} ${edge.targetLabel} .</pre>
+    <pre class="graph">${escapeHtml(`${edge.sourceLabel} ${edge.predicate} ${edge.targetLabel} .`)}</pre>
     <p>이 엣지는 노드 사이의 증거 연결(evidence link)을 설명합니다.</p>
   `;
 
@@ -489,13 +514,59 @@ const readInput = (): { scenario: ScenarioKey; input: ContextInput } => ({
   },
 });
 
+const updateShareTargetOptions = (ranked: ReadonlyArray<Recommendation>): void => {
+  const previous = shareTargetSelect.value;
+  shareTargetSelect.replaceChildren();
+  ranked.forEach((item) => {
+    const option = document.createElement('option');
+    option.value = item.candidate.id;
+    option.textContent = `${item.candidate.label} (${item.candidate.kind}) · score ${item.score}`;
+    shareTargetSelect.appendChild(option);
+  });
+
+  if (ranked.some((item) => item.candidate.id === previous)) {
+    shareTargetSelect.value = previous;
+    return;
+  }
+
+  if (ranked[0]) {
+    shareTargetSelect.value = ranked[0].candidate.id;
+  }
+};
+
+const renderShareHistory = (): void => {
+  const historyItems = [...shareHistory].slice(-5).reverse();
+  const historyList = historyItems.length > 0
+    ? `<ol class="share-history-list">${historyItems.map((entry) => `
+      <li>
+        <strong>${escapeHtml(entry.selectedTargetLabel)}</strong>
+        <span class="score">${escapeHtml(entry.result)}</span>
+        <small>${escapeHtml(entry.scenario)} · rec=${escapeHtml(entry.recommendedTargetId)} · ${escapeHtml(entry.sharedAt)}</small>
+      </li>
+    `).join('')}</ol>`
+    : `<p class="share-history-empty">${labels.shareHistoryEmpty}</p>`;
+
+  shareHistoryPanel.innerHTML = `
+    <div class="share-history-head">
+      <p><strong>${labels.shareHistoryTitle}</strong></p>
+      <p>${shareHistory.length} events persisted in localStorage</p>
+      <p>${escapeHtml(shareStatusMessage)}</p>
+    </div>
+    ${historyList}
+  `;
+};
+
 const render = (): void => {
   const { scenario, input } = readInput();
-  const graph = buildContextGraph(scenario, input);
+  const baseGraph = buildContextGraph(scenario, input);
+  const graph = appendShareHistoryToGraph(baseGraph, shareHistory);
   const ranked = rankCandidates(scenario, input);
   const explanation = explanationFor(scenario, input, graph);
   const decisionEvidence = buildDecisionEvidence(scenario, input);
   const graphViz = renderGraphViz(graph);
+
+  updateShareTargetOptions(ranked);
+  renderShareHistory();
 
   const graphView = document.createElement('div');
   graphView.className = 'graph-view';
@@ -507,7 +578,7 @@ const render = (): void => {
     <p><strong>${graphViz.summary}</strong></p>
     <details>
       <summary>${labels.rdfTriplesSummary}</summary>
-      <pre class="graph">${renderGraph(graph).join('\n')}</pre>
+      <pre class="graph">${escapeHtml(renderGraph(graph).join('\n'))}</pre>
     </details>
   `;
 
@@ -540,6 +611,7 @@ const render = (): void => {
   `;
   explanationCard.replaceChildren(titleNode(labels.explanationTitle), explanationBlock);
 
+  const lastEvent = shareHistory.length > 0 ? shareHistory[shareHistory.length - 1] : null;
   const notes = document.createElement('div');
   notes.className = 'notes';
   notes.innerHTML = `
@@ -549,8 +621,11 @@ const render = (): void => {
       <li>컨텍스트 그래프(Context Graph)는 두 정보를 합친 작업 그래프입니다.</li>
       <li>RDF 트리플은 설명 가능성과 질의 가능성을 높입니다.</li>
       <li>fp-ts는 순수 함수 기반 조립과 정렬에 사용됩니다.</li>
+      <li>이제 share 실행 결과도 localStorage 기반 RDF event로 누적됩니다.</li>
     </ul>
     <p>후보: ${candidates.length}개</p>
+    <p>누적 share events: ${shareHistory.length}개</p>
+    <p>최근 share: ${lastEvent ? `${escapeHtml(lastEvent.selectedTargetLabel)} · ${escapeHtml(lastEvent.sharedAt)}` : '없음 (none yet)'}</p>
   `;
   legendCard.replaceChildren(titleNode(labels.designNotesTitle), notes);
 };
@@ -562,6 +637,42 @@ scenarioSelect.addEventListener('change', () => {
 
 [contentTypeSelect, sourceAppSelect, timeBandSelect, placeSelect].forEach((el) => el.addEventListener('change', render));
 runButton.addEventListener('click', render);
+shareButton.addEventListener('click', () => {
+  const { scenario, input } = readInput();
+  const ranked = rankCandidates(scenario, input);
+  const selectedTarget = candidates.find((candidate) => candidate.id === shareTargetSelect.value) ?? ranked[0]?.candidate;
+  const recommendedTarget = ranked[0]?.candidate;
+
+  if (!selectedTarget || !recommendedTarget) {
+    shareStatusMessage = '공유 가능한 대상이 없습니다. (No share target available)';
+    render();
+    return;
+  }
+
+  const nextHistory: ReadonlyArray<ShareHistoryEntry> = [
+    ...shareHistory,
+    {
+      id: `share-event-${shareHistory.length + 1}`,
+      scenario,
+      input,
+      recommendedTargetId: recommendedTarget.id,
+      selectedTargetId: selectedTarget.id,
+      selectedTargetLabel: selectedTarget.label,
+      result: 'success' as const,
+      sharedAt: new Date().toISOString(),
+    },
+  ];
+
+  if (!saveShareHistory(nextHistory)) {
+    shareStatusMessage = 'localStorage 저장에 실패해 RDF 이력이 반영되지 않았습니다. (Persistence failed)';
+    render();
+    return;
+  }
+
+  shareHistory = nextHistory;
+  shareStatusMessage = `${selectedTarget.label} share event를 RDF에 저장했습니다. (Saved successfully)`;
+  render();
+});
 
 setDefaults('family-photo');
 render();

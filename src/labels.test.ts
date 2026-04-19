@@ -31,6 +31,9 @@ describe('korean label helpers', () => {
     expect(labels.heroTitle).toContain('공유 추천 데모');
     expect(labels.heroTitle).toContain('Sharesheet Recommendation Demo');
     expect(labels.controlsTitle).toContain('컨텍스트 입력');
+    expect(labels.shareControlsTitle).toContain('공유 실행');
+    expect(labels.shareTargetLabel).toContain('공유 대상');
+    expect(labels.shareButton).toContain('append RDF');
     expect(labels.graphInspectorTitle).toContain('그래프 인스펙터');
     expect(labels.designNotesTitle).toContain('설계 메모');
     expect(labels.rdfTriplesSummary).toContain('RDF 트리플 보기');
