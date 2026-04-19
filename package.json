@@ -4,8 +4,8 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "vite --open /app.html",
+    "build": "tsc -b && vite build && cp dist/app.html dist/index.html && node scripts/sync-pages-root.mjs",
     "preview": "vite preview",
     "deploy": "npm run build",
     "test": "vitest run"
