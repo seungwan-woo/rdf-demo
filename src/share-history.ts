@@ -29,10 +29,10 @@ const targetTerm = (candidateId: string) => {
   return iri(`${prefix}:${candidateId}`);
 };
 
-const eventNode = (index: number) => iri(`decision:share-event-${index + 1}`);
+const eventNode = (entryId: string) => iri(`decision:${entryId}`);
 
-export const buildShareEventTriples = (entry: ShareHistoryEntry, index: number): ReadonlyArray<Triple> => {
-  const event = eventNode(index);
+export const buildShareEventTriples = (entry: ShareHistoryEntry): ReadonlyArray<Triple> => {
+  const event = eventNode(entry.id);
   return [
     triple(event, iri('rdf:type'), iri('ctx:ShareEvent')),
     triple(event, iri('ctx:forIntent'), iri('ctx:share')),
@@ -51,7 +51,7 @@ export const buildShareEventTriples = (entry: ShareHistoryEntry, index: number):
 
 export const appendShareHistoryToGraph = (graph: Graph, history: ReadonlyArray<ShareHistoryEntry>): Graph => [
   ...graph,
-  ...history.flatMap((entry, index) => buildShareEventTriples(entry, index)),
+  ...history.flatMap((entry) => buildShareEventTriples(entry)),
 ];
 
 const isValidEntry = (value: unknown): value is ShareHistoryEntry => {
@@ -93,4 +93,9 @@ export const saveShareHistory = (history: ReadonlyArray<ShareHistoryEntry>): boo
   } catch {
     return false;
   }
+};
+
+export const persistShareHistoryEntry = (entry: ShareHistoryEntry): ReadonlyArray<ShareHistoryEntry> | null => {
+  const nextHistory = [...loadShareHistory(), entry];
+  return saveShareHistory(nextHistory) ? nextHistory : null;
 };
