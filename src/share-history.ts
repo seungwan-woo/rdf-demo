@@ -19,7 +19,24 @@ export type ShareHistoryEntry = Readonly<{
   sharedAt: string;
 }>;
 
+export type ShareHistoryGraphSummary = Readonly<{
+  nodeId: string;
+  scenario: ScenarioKey;
+  selectedTargetId: string;
+  selectedTargetLabel: string;
+  count: number;
+  firstSharedAt: string;
+  lastSharedAt: string;
+  representative: ShareHistoryEntry;
+}>;
+
+export type ShareHistoryCompression = Readonly<{
+  recentEntries: ReadonlyArray<ShareHistoryEntry>;
+  summaries: ReadonlyArray<ShareHistoryGraphSummary>;
+}>;
+
 export const SHARE_HISTORY_STORAGE_KEY = 'rdf-demo/share-history';
+export const SHARE_HISTORY_GRAPH_RECENT_LIMIT = 5;
 
 const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate] as const));
 
@@ -30,6 +47,11 @@ const targetTerm = (candidateId: string) => {
 };
 
 const eventNode = (entryId: string) => iri(`decision:${entryId}`);
+const summaryNode = (scenario: ScenarioKey, selectedTargetId: string) =>
+  iri(`decision:summary-${scenario}-${selectedTargetId}`);
+
+const compareBySharedAt = (left: ShareHistoryEntry, right: ShareHistoryEntry): number =>
+  left.sharedAt.localeCompare(right.sharedAt);
 
 export const buildShareEventTriples = (entry: ShareHistoryEntry): ReadonlyArray<Triple> => {
   const event = eventNode(entry.id);
@@ -49,10 +71,77 @@ export const buildShareEventTriples = (entry: ShareHistoryEntry): ReadonlyArray<
   ];
 };
 
-export const appendShareHistoryToGraph = (graph: Graph, history: ReadonlyArray<ShareHistoryEntry>): Graph => [
-  ...graph,
-  ...history.flatMap((entry) => buildShareEventTriples(entry)),
-];
+export const buildShareHistorySummaryTriples = (summary: ShareHistoryGraphSummary): ReadonlyArray<Triple> => {
+  const node = summaryNode(summary.scenario, summary.selectedTargetId);
+  return [
+    triple(node, iri('rdf:type'), iri('ctx:ShareEventSummary')),
+    triple(node, iri('ctx:forIntent'), iri('ctx:share')),
+    triple(node, iri('ctx:scenario'), literal(summary.scenario)),
+    triple(node, iri('ctx:selectedTarget'), targetTerm(summary.selectedTargetId)),
+    triple(node, iri('ctx:selectedTargetLabel'), literal(summary.selectedTargetLabel)),
+    triple(node, iri('ctx:shareCount'), literal(String(summary.count))),
+    triple(node, iri('ctx:firstSharedAt'), literal(summary.firstSharedAt)),
+    triple(node, iri('ctx:lastSharedAt'), literal(summary.lastSharedAt)),
+    triple(node, iri('ctx:contentType'), literal(summary.representative.input.contentType)),
+    triple(node, iri('ctx:sourceApp'), literal(summary.representative.input.sourceApp)),
+    triple(node, iri('ctx:timeBand'), literal(summary.representative.input.timeBand)),
+    triple(node, iri('ctx:place'), literal(summary.representative.input.place)),
+    triple(node, iri('ctx:compressionStrategy'), literal(`recent-${SHARE_HISTORY_GRAPH_RECENT_LIMIT} + scenario/target summary`)),
+  ];
+};
+
+export const compressShareHistoryForGraph = (
+  history: ReadonlyArray<ShareHistoryEntry>,
+  recentEventCount: number = SHARE_HISTORY_GRAPH_RECENT_LIMIT,
+): ShareHistoryCompression => {
+  if (history.length <= recentEventCount) {
+    return { recentEntries: [...history].sort(compareBySharedAt), summaries: [] };
+  }
+
+  const ordered = [...history].sort(compareBySharedAt);
+  const boundaryIndex = Math.max(0, ordered.length - recentEventCount);
+  const olderEntries = ordered.slice(0, boundaryIndex);
+  const recentEntries = ordered.slice(boundaryIndex);
+  const grouped = new Map<string, ShareHistoryEntry[]>();
+
+  for (const entry of olderEntries) {
+    const key = `${entry.scenario}::${entry.selectedTargetId}`;
+    const bucket = grouped.get(key);
+    if (bucket) {
+      bucket.push(entry);
+    } else {
+      grouped.set(key, [entry]);
+    }
+  }
+
+  const summaries = Array.from(grouped.values())
+    .map((entries) => {
+      const sorted = [...entries].sort(compareBySharedAt);
+      const representative = sorted[sorted.length - 1]!;
+      return {
+        nodeId: `decision:summary-${representative.scenario}-${representative.selectedTargetId}`,
+        scenario: representative.scenario,
+        selectedTargetId: representative.selectedTargetId,
+        selectedTargetLabel: representative.selectedTargetLabel,
+        count: entries.length,
+        firstSharedAt: sorted[0]!.sharedAt,
+        lastSharedAt: sorted[sorted.length - 1]!.sharedAt,
+        representative,
+      } satisfies ShareHistoryGraphSummary;
+    })
+    .sort((left, right) => left.lastSharedAt.localeCompare(right.lastSharedAt));
+
+  return { recentEntries, summaries };
+};
+
+export const appendShareHistoryToGraph = (graph: Graph, history: ReadonlyArray<ShareHistoryEntry>): Graph => {
+  const compression = compressShareHistoryForGraph(history);
+  return [
+    ...graph,
+    ...compression.summaries.flatMap((summary) => buildShareHistorySummaryTriples(summary)),
+    ...compression.recentEntries.flatMap((entry) => buildShareEventTriples(entry)),
+  ];
+};
 
 const isValidEntry = (value: unknown): value is ShareHistoryEntry => {
   if (!value || typeof value !== 'object') return false;

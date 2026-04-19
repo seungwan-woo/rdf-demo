@@ -4,7 +4,7 @@
 
 ## 한눈에 요약
 
-RDF의 초기값은 크게 3군데에서 들어옵니다.
+RDF의 초기값은 크게 4군데에서 들어옵니다.
 
 1. `src/domain.ts`의 `scenarioDefaults`
    - UI에서 시나리오를 고르면 기본 입력값(`contentType`, `sourceApp`, `timeBand`, `place`)을 세팅합니다.
@@ -14,6 +14,7 @@ RDF의 초기값은 크게 3군데에서 들어옵니다.
    - 공통 base triple과 시나리오별 `pdeFacts`를 합쳐 최종 RDF graph를 만듭니다.
 4. `src/share-history.ts`의 `appendShareHistoryToGraph`
    - 사용자가 demo에서 실제로 수행한 share 결과를 `ctx:ShareEvent` RDF triple로 누적해 최종 graph에 덧붙입니다.
+   - 다만 무한히 append하면 graph가 너무 커지므로, 최근 이벤트는 raw triple로 유지하고 오래된 이벤트는 summary node로 압축합니다.
 
 ## 코드 기준 위치
 
@@ -125,5 +126,29 @@ flowchart TD
 1. 입력 기본값은 `scenarioDefaults`
 2. 그래프 기본 골격은 `buildContextGraph()`의 `base`
 3. 시나리오별 seed fact는 `pdeFacts`
+4. 사용자가 누적한 share 결과는 `appendShareHistoryToGraph()`에서 recent/raw + summary로 압축되어 합쳐짐
 
-이 3개가 합쳐져 현재 데모의 RDF 초기 상태를 만든다고 보면 됩니다.
+이 4개가 합쳐져 현재 데모의 RDF 초기 상태와 누적 상태를 만든다고 보면 됩니다.
+
+## Share 결과 압축 전략
+
+share 결과는 localStorage에 append-only로 남기되, 그래프에 넣을 때만 압축합니다.
+
+### 규칙
+
+- 최근 5개 이벤트는 raw `ctx:ShareEvent` 노드로 유지
+- 그보다 오래된 이벤트는 `scenario + selectedTargetId` 기준으로 묶어서 `ctx:ShareEventSummary` 노드로 변환
+- summary 노드에는 다음 정보를 저장
+  - `ctx:shareCount`
+  - `ctx:firstSharedAt`
+  - `ctx:lastSharedAt`
+  - 대표 입력값(`contentType`, `sourceApp`, `timeBand`, `place`)
+  - `ctx:compressionStrategy`
+
+### 왜 이 방식인가
+
+1. 그래프 크기를 bounded하게 유지할 수 있음
+2. 최근 행동은 raw event로 보존되어 디버깅/설명이 쉬움
+3. 오래된 패턴은 summary로 남겨서 추천 근거와 추세만 유지할 수 있음
+
+즉, 저장소는 append-only, 시각화용 working graph는 compressed view로 분리하는 방식입니다.

@@ -3,10 +3,12 @@ import { buildContextGraph } from './domain';
 import {
   appendShareHistoryToGraph,
   buildShareEventTriples,
+  compressShareHistoryForGraph,
   escapeHtml,
   loadShareHistory,
   persistShareHistoryEntry,
   saveShareHistory,
+  SHARE_HISTORY_GRAPH_RECENT_LIMIT,
   type ShareHistoryEntry,
 } from './share-history';
 
@@ -25,6 +27,15 @@ const sampleEntry: ShareHistoryEntry = {
   result: 'success',
   sharedAt: '2026-04-19T09:30:00.000Z',
 };
+
+const makeEntry = (id: string, sharedAt: string, selectedTargetId = 'kakaotalk'): ShareHistoryEntry => ({
+  ...sampleEntry,
+  id,
+  selectedTargetId,
+  selectedTargetLabel: selectedTargetId === 'mom' ? '엄마' : '카카오톡',
+  recommendedTargetId: selectedTargetId,
+  sharedAt,
+});
 
 describe('share history RDF integration', () => {
   it('builds RDF triples for a share event including recommended and selected targets', () => {
@@ -57,6 +68,45 @@ describe('share history RDF integration', () => {
     expect(merged.length).toBeGreaterThan(baseGraph.length);
     expect(shareEventSubjects.length).toBeGreaterThan(0);
     expect(merged.some((triple) => triple.predicate.value === 'ctx:selectedTarget' && triple.object.value === 'app:kakaotalk')).toBe(true);
+  });
+
+  it('compresses older share events into summary nodes while keeping recent events raw', () => {
+    const history = [
+      makeEntry('evt-1', '2026-04-19T08:00:00.000Z'),
+      makeEntry('evt-2', '2026-04-19T08:10:00.000Z'),
+      makeEntry('evt-3', '2026-04-19T08:20:00.000Z', 'mom'),
+      makeEntry('evt-4', '2026-04-19T08:30:00.000Z'),
+      makeEntry('evt-5', '2026-04-19T08:40:00.000Z'),
+      makeEntry('evt-6', '2026-04-19T08:50:00.000Z'),
+      makeEntry('evt-7', '2026-04-19T09:00:00.000Z'),
+    ];
+
+    const compression = compressShareHistoryForGraph(history, SHARE_HISTORY_GRAPH_RECENT_LIMIT);
+
+    expect(compression.recentEntries.map((entry) => entry.id)).toEqual(['evt-3', 'evt-4', 'evt-5', 'evt-6', 'evt-7']);
+    expect(compression.summaries).toHaveLength(1);
+    expect(compression.summaries[0]).toMatchObject({
+      scenario: 'family-photo',
+      selectedTargetId: 'kakaotalk',
+      count: 2,
+      firstSharedAt: '2026-04-19T08:00:00.000Z',
+      lastSharedAt: '2026-04-19T08:10:00.000Z',
+    });
+
+    const baseGraph = buildContextGraph('family-photo', sampleEntry.input);
+    const merged = appendShareHistoryToGraph(baseGraph, history);
+
+    expect(merged.some((triple) => triple.subject.value === 'decision:evt-1')).toBe(false);
+    expect(merged.some((triple) => triple.subject.value === 'decision:evt-2')).toBe(false);
+    expect(merged.some((triple) => triple.subject.value === 'decision:evt-3')).toBe(true);
+    expect(merged.some((triple) => triple.subject.value === 'decision:summary-family-photo-kakaotalk')).toBe(true);
+    expect(
+      merged.some(
+        (triple) => triple.subject.value === 'decision:summary-family-photo-kakaotalk'
+          && triple.predicate.value === 'ctx:shareCount'
+          && triple.object.value === '2',
+      ),
+    ).toBe(true);
   });
 
   it('escapes persisted strings before they are inserted into HTML-based UI sections', () => {
