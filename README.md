@@ -27,6 +27,7 @@ npm run preview
 ## Docs
 
 - RDF 초기값과 그래프 생성 흐름: `docs/rdf-initial-values.md`
+- Context Graph Decision System 설계 메모: `docs/decision-architecture.md`
 
 ## GitHub Pages
 
