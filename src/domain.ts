@@ -4,7 +4,12 @@ import * as O from 'fp-ts/Option';
 import { blank, Graph, iri, literal, triple, type Triple } from './rdf';
 import type { ShareHistoryEntry } from './share-history';
 
-export type ScenarioKey = 'family-photo' | 'work-doc' | 'social-link';
+export type ScenarioKey =
+  | 'family-photo'
+  | 'work-doc'
+  | 'social-link'
+  | 'app-surfacing'
+  | 'restaurant-recommendation';
 
 export type ContextInput = Readonly<{
   contentType: 'image' | 'document' | 'link';
@@ -16,7 +21,7 @@ export type ContextInput = Readonly<{
 export type Candidate = Readonly<{
   id: string;
   label: string;
-  kind: 'contact' | 'app';
+  kind: 'contact' | 'app' | 'restaurant';
   affinityTags: ReadonlyArray<string>;
 }>;
 
@@ -48,9 +53,13 @@ export const candidates: ReadonlyArray<Candidate> = [
   { id: 'best-friend', label: '베스트프렌드', kind: 'contact', affinityTags: ['social', 'image', 'link', 'evening'] },
   { id: 'team-lead', label: '팀 리드', kind: 'contact', affinityTags: ['work', 'document', 'office', 'afternoon'] },
   { id: 'coworker', label: '동료', kind: 'contact', affinityTags: ['work', 'document', 'office'] },
-  { id: 'slack', label: 'Slack', kind: 'app', affinityTags: ['work', 'document', 'office'] },
+  { id: 'slack', label: 'Slack', kind: 'app', affinityTags: ['work', 'document', 'office', 'afternoon'] },
   { id: 'kakaotalk', label: '카카오톡', kind: 'app', affinityTags: ['social', 'image', 'home', 'evening'] },
   { id: 'gmail', label: 'Gmail', kind: 'app', affinityTags: ['work', 'document', 'office'] },
+  { id: 'maps', label: 'Google Maps', kind: 'app', affinityTags: ['moving', 'afternoon', 'work'] },
+  { id: 'chicken-place', label: '치킨집', kind: 'restaurant', affinityTags: ['food', 'evening', 'home'] },
+  { id: 'ramen-place', label: '라멘집', kind: 'restaurant', affinityTags: ['food', 'evening', 'office'] },
+  { id: 'salad-place', label: '샐러드집', kind: 'restaurant', affinityTags: ['food', 'afternoon', 'office'] },
 ];
 
 const pdeFacts: Readonly<Record<ScenarioKey, ReadonlyArray<Triple>>> = {
@@ -69,18 +78,40 @@ const pdeFacts: Readonly<Record<ScenarioKey, ReadonlyArray<Triple>>> = {
     triple(iri('pde:kakaotalk'), iri('pde:channel'), literal('chat')),
     triple(iri('pde:social-circle'), iri('pde:contains'), iri('pde:best-friend')),
   ],
+  'app-surfacing': [
+    triple(iri('pde:workspace'), iri('pde:favoriteApp'), iri('app:slack')),
+    triple(iri('pde:workspace'), iri('pde:favoriteApp'), iri('app:gmail')),
+    triple(iri('pde:routine'), iri('pde:focusWindow'), literal('afternoon-office')),
+  ],
+  'restaurant-recommendation': [
+    triple(iri('pde:food-profile'), iri('pde:likes'), literal('fried-chicken')),
+    triple(iri('pde:food-profile'), iri('pde:likes'), literal('ramen')),
+    triple(iri('pde:food-profile'), iri('pde:avoid'), literal('heavy-lunch')),
+  ],
 };
 
 export const scenarioDefaults: Readonly<Record<ScenarioKey, ContextInput>> = {
   'family-photo': { contentType: 'image', sourceApp: 'gallery', timeBand: 'evening', place: 'home' },
   'work-doc': { contentType: 'document', sourceApp: 'mail', timeBand: 'afternoon', place: 'office' },
   'social-link': { contentType: 'link', sourceApp: 'browser', timeBand: 'evening', place: 'home' },
+  'app-surfacing': { contentType: 'document', sourceApp: 'mail', timeBand: 'afternoon', place: 'office' },
+  'restaurant-recommendation': { contentType: 'image', sourceApp: 'chat', timeBand: 'evening', place: 'home' },
 };
 
 export const scenarioLabel: Record<ScenarioKey, string> = {
   'family-photo': '가족 사진 공유',
   'work-doc': '업무 문서 공유',
   'social-link': '링크 공유',
+  'app-surfacing': '앱 우선 노출 추천',
+  'restaurant-recommendation': '음식점 추천',
+};
+
+const scenarioTargetKinds: Readonly<Record<ScenarioKey, ReadonlyArray<Candidate['kind']>>> = {
+  'family-photo': ['contact', 'app'],
+  'work-doc': ['contact', 'app'],
+  'social-link': ['contact', 'app'],
+  'app-surfacing': ['app'],
+  'restaurant-recommendation': ['restaurant'],
 };
 
 export const buildContextGraph = (scenario: ScenarioKey, input: ContextInput): Graph => {
@@ -125,6 +156,8 @@ const scenarioBonus = (candidate: Candidate, scenario: ScenarioKey): number => {
     'family-photo': 'family',
     'work-doc': 'work',
     'social-link': 'social',
+    'app-surfacing': 'work',
+    'restaurant-recommendation': 'food',
   };
   return hasTag(candidate.affinityTags, tagByScenario[scenario]) ? 8 : 0;
 };
@@ -193,7 +226,9 @@ export const rankCandidates = (
   input: ContextInput,
   history: ReadonlyArray<ShareHistoryEntry> = [],
 ): ReadonlyArray<Recommendation> => {
-  const ranked = pipe(candidates, A.map((candidate) => scoreCandidate(scenario, input, candidate, history)));
+  const allowedKinds = scenarioTargetKinds[scenario];
+  const candidatePool = candidates.filter((candidate) => allowedKinds.includes(candidate.kind));
+  const ranked = pipe(candidatePool, A.map((candidate) => scoreCandidate(scenario, input, candidate, history)));
   return [...ranked].sort((a, b) => b.score - a.score || a.candidate.label.localeCompare(b.candidate.label, 'ko'));
 };
 

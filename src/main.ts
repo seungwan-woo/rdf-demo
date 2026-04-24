@@ -16,6 +16,8 @@ const scenarioOptions: ReadonlyArray<{ value: ScenarioKey; label: string }> = [
   { value: 'family-photo', label: '가족 사진 공유 (Family photo share)' },
   { value: 'work-doc', label: '업무 문서 공유 (Work document share)' },
   { value: 'social-link', label: '링크 공유 (Social link share)' },
+  { value: 'app-surfacing', label: '앱 우선 노출 추천 (App surfacing recommendation)' },
+  { value: 'restaurant-recommendation', label: '음식점 추천 (Restaurant recommendation)' },
 ];
 
 const labels = buildLabelCatalog();

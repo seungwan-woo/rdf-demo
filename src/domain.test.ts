@@ -56,3 +56,35 @@ describe('history-based recommendation bonus', () => {
     expect(evidence.dominantSignals.some((signal) => signal.includes('history=+'))).toBe(true);
   });
 });
+
+describe('multi recommendation scenarios', () => {
+  it('supports app surfacing scenario with app-only candidates', () => {
+    const input: ContextInput = {
+      contentType: 'document',
+      sourceApp: 'mail',
+      timeBand: 'afternoon',
+      place: 'office',
+    };
+
+    const ranked = rankCandidates('app-surfacing', input, []);
+
+    expect(ranked.length).toBeGreaterThan(0);
+    expect(ranked.every((item) => item.candidate.kind === 'app')).toBe(true);
+    expect(ranked[0]?.candidate.id).toBe('slack');
+  });
+
+  it('supports restaurant recommendation scenario with restaurant-only candidates', () => {
+    const input: ContextInput = {
+      contentType: 'image',
+      sourceApp: 'chat',
+      timeBand: 'evening',
+      place: 'home',
+    };
+
+    const ranked = rankCandidates('restaurant-recommendation', input, []);
+
+    expect(ranked.length).toBeGreaterThan(0);
+    expect(ranked.every((item) => item.candidate.kind === 'restaurant')).toBe(true);
+    expect(ranked[0]?.candidate.id).toBe('chicken-place');
+  });
+});

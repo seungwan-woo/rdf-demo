@@ -42,7 +42,11 @@ const candidateById = new Map(candidates.map((candidate) => [candidate.id, candi
 
 const targetTerm = (candidateId: string) => {
   const candidate = candidateById.get(candidateId);
-  const prefix = candidate?.kind === 'app' ? 'app' : 'contact';
+  const prefix = candidate?.kind === 'app'
+    ? 'app'
+    : candidate?.kind === 'restaurant'
+      ? 'restaurant'
+      : 'contact';
   return iri(`${prefix}:${candidateId}`);
 };
 
