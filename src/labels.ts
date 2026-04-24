@@ -64,10 +64,10 @@ export const formatContextLine = (field: ContextFieldKey, value: string): string
 
 export const buildLabelCatalog = () => ({
   heroEyebrow: 'RDF + fp-ts + TypeScript · RDF 그래프 기반 추천 데모',
-  heroTitle: '공유 추천 데모 (Sharesheet Recommendation Demo)',
+  heroTitle: '공유 추천 데모 v2 (Sharesheet Recommendation Demo v2)',
   heroSubtitle:
     'PDE(장기 컨텍스트)와 CE(실시간 컨텍스트)를 RDF 작업 그래프(working graph)로 묶어 추천 순위를 계산합니다.',
-  githubPagesBadge: 'GitHub Pages 배포 가능 (GitHub Pages ready)',
+  githubPagesBadge: 'GitHub Pages 배포 가능 (GitHub Pages ready) · ARCH V2 LIVE',
   controlsTitle: '컨텍스트 입력 (Context Input)',
   shareControlsTitle: '공유 실행 (Share Action)',
   shareTargetLabel: '공유 대상 (Share Target)',
