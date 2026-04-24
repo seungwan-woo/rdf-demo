@@ -134,13 +134,14 @@ graphInspector.className = 'panel graph-inspector';
 
 const rankingCard = card(labels.rankingTitle);
 const explanationCard = card(labels.explanationTitle);
+const workspaceCard = card('아키텍처 스냅샷 (Architecture Snapshot)');
 const legendCard = card(labels.designNotesTitle);
 
 const graphColumn = document.createElement('section');
 graphColumn.className = 'graph-column';
 graphColumn.append(graphCard, graphInspector);
 
-output.append(graphColumn, rankingCard, explanationCard, legendCard);
+output.append(graphColumn, rankingCard, explanationCard, workspaceCard, legendCard);
 
 section.append(controls, shareControls, output);
 app.append(section);
@@ -607,6 +608,20 @@ const render = (): void => {
     <p>${labels.graphSize}: ${workspace.explanation.graphSize} triples</p>
   `;
   explanationCard.replaceChildren(titleNode(labels.explanationTitle), explanationBlock);
+
+  const architectureBlock = document.createElement('div');
+  architectureBlock.className = 'notes';
+  architectureBlock.innerHTML = `
+    <p><strong>Layer boundary snapshot</strong></p>
+    <ul>
+      <li>Source(Input): scenario=${workspace.scenario}, content=${workspace.input.contentType}, sourceApp=${workspace.input.sourceApp}</li>
+      <li>Storage(History): total ${shareHistory.length} events</li>
+      <li>Working Graph: base ${workspace.baseGraph.length} + history merge => ${workspace.workingGraph.length} triples</li>
+      <li>Compression: recent raw ${workspace.historyCompression.recentEntries.length} / summary ${workspace.historyCompression.summaries.length}</li>
+      <li>Decision: top=${workspace.evidence.topRecommendation.candidate.label}, score=${workspace.evidence.topRecommendation.score}</li>
+    </ul>
+  `;
+  workspaceCard.replaceChildren(titleNode('아키텍처 스냅샷 (Architecture Snapshot)'), architectureBlock);
 
   const lastEvent = shareHistory.length > 0 ? shareHistory[shareHistory.length - 1] : null;
   const notes = document.createElement('div');
