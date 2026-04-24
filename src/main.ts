@@ -1,8 +1,9 @@
-import { buildContextGraph, buildDecisionEvidence, candidates, explanationFor, rankCandidates, scenarioDefaults, type ContextInput, type Recommendation, type ScenarioKey } from './domain';
+import { candidates, scenarioDefaults, type ContextInput, type Recommendation, type ScenarioKey } from './domain';
+import { buildDecisionWorkspace, type DecisionWorkspace } from './decision-pipeline';
 import { renderGraph } from './rdf';
 import { renderGraphViz, type GraphViz, type GraphVizEdge, type GraphVizNode } from './graph-viz';
 import { buildLabelCatalog, describeRdfTerm, formatContextLine, optionLabel } from './labels';
-import { appendShareHistoryToGraph, escapeHtml, loadShareHistory, saveShareHistory, type ShareHistoryEntry } from './share-history';
+import { escapeHtml, loadShareHistory, saveShareHistory, type ShareHistoryEntry } from './share-history';
 import './style.css';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -272,7 +273,7 @@ const renderEdgeInspector = (edge: GraphVizEdge): void => {
   graphInspector.replaceChildren(titleNode(labels.graphInspectorTitle), container);
 };
 
-const renderDecisionInspector = (evidence: ReturnType<typeof buildDecisionEvidence>): void => {
+const renderDecisionInspector = (evidence: DecisionWorkspace['evidence']): void => {
   const container = document.createElement('div');
   container.className = 'inspector-body';
 
@@ -329,7 +330,7 @@ const renderDecisionInspector = (evidence: ReturnType<typeof buildDecisionEviden
   graphInspector.replaceChildren(titleNode(labels.graphInspectorTitle), container);
 };
 
-const renderDefaultInspector = (viz: GraphViz, evidence: ReturnType<typeof buildDecisionEvidence>): void => {
+const renderDefaultInspector = (viz: GraphViz, evidence: DecisionWorkspace['evidence']): void => {
   const container = document.createElement('div');
   container.className = 'inspector-body';
   container.innerHTML = `
@@ -353,7 +354,7 @@ const renderDefaultInspector = (viz: GraphViz, evidence: ReturnType<typeof build
   graphInspector.replaceChildren(titleNode(labels.graphInspectorTitle), container);
 };
 
-const bindGraphInteractions = (graphView: HTMLElement, viz: GraphViz, evidence: ReturnType<typeof buildDecisionEvidence>): void => {
+const bindGraphInteractions = (graphView: HTMLElement, viz: GraphViz, evidence: DecisionWorkspace['evidence']): void => {
   const svg = graphView.querySelector<SVGSVGElement>('svg');
   if (!svg) return;
 
@@ -558,14 +559,10 @@ const renderShareHistory = (): void => {
 
 const render = (): void => {
   const { scenario, input } = readInput();
-  const baseGraph = buildContextGraph(scenario, input);
-  const graph = appendShareHistoryToGraph(baseGraph, shareHistory);
-  const ranked = rankCandidates(scenario, input, shareHistory);
-  const explanation = explanationFor(scenario, input, graph);
-  const decisionEvidence = buildDecisionEvidence(scenario, input, shareHistory);
-  const graphViz = renderGraphViz(graph);
+  const workspace = buildDecisionWorkspace(scenario, input, shareHistory);
+  const graphViz = renderGraphViz(workspace.workingGraph);
 
-  updateShareTargetOptions(ranked);
+  updateShareTargetOptions(workspace.ranked);
   renderShareHistory();
 
   const graphView = document.createElement('div');
@@ -578,16 +575,16 @@ const render = (): void => {
     <p><strong>${graphViz.summary}</strong></p>
     <details>
       <summary>${labels.rdfTriplesSummary}</summary>
-      <pre class="graph">${escapeHtml(renderGraph(graph).join('\n'))}</pre>
+      <pre class="graph">${escapeHtml(renderGraph(workspace.workingGraph).join('\n'))}</pre>
     </details>
   `;
 
   graphCard.replaceChildren(titleNode(labels.graphTitle), graphView, graphMeta);
-  bindGraphInteractions(graphView, graphViz, decisionEvidence);
+  bindGraphInteractions(graphView, graphViz, workspace.evidence);
 
   const rankingList = document.createElement('ol');
   rankingList.className = 'ranking';
-  ranked.slice(0, 5).forEach((item) => {
+  workspace.ranked.slice(0, 5).forEach((item) => {
     const li = document.createElement('li');
     li.innerHTML = `<strong>${item.candidate.label}</strong> <span class="score">${item.score}</span><br/><small>${item.reasons.join(' · ') || '기본 prior만 반영 (base prior only)'}</small>`;
     rankingList.appendChild(li);
@@ -597,8 +594,8 @@ const render = (): void => {
   const explanationBlock = document.createElement('div');
   explanationBlock.className = 'explain';
   explanationBlock.innerHTML = `
-    <p><strong>${explanation.scenarioLabel}</strong></p>
-    <p>${explanation.summary}</p>
+    <p><strong>${workspace.explanation.scenarioLabel}</strong></p>
+    <p>${workspace.explanation.summary}</p>
     <ul>
       ${[
         formatContextLine('contentType', input.contentType),
@@ -607,7 +604,7 @@ const render = (): void => {
         formatContextLine('place', input.place),
       ].map((line) => `<li>${line}</li>`).join('')}
     </ul>
-    <p>${labels.graphSize}: ${explanation.graphSize} triples</p>
+    <p>${labels.graphSize}: ${workspace.explanation.graphSize} triples</p>
   `;
   explanationCard.replaceChildren(titleNode(labels.explanationTitle), explanationBlock);
 
@@ -619,6 +616,7 @@ const render = (): void => {
       <li>PDE는 장기 관계와 친밀도(affinity)를 제공합니다.</li>
       <li>CE는 현재 시간, 장소, 앱 상태를 제공합니다.</li>
       <li>컨텍스트 그래프(Context Graph)는 두 정보를 합친 작업 그래프입니다.</li>
+      <li>작업 그래프는 최근 raw ${workspace.historyCompression.recentEntries.length}건과 summary ${workspace.historyCompression.summaries.length}건만 반영합니다.</li>
       <li>RDF 트리플은 설명 가능성과 질의 가능성을 높입니다.</li>
       <li>fp-ts는 순수 함수 기반 조립과 정렬에 사용됩니다.</li>
       <li>이제 share 실행 결과도 localStorage 기반 RDF event로 누적됩니다.</li>
@@ -639,9 +637,9 @@ scenarioSelect.addEventListener('change', () => {
 runButton.addEventListener('click', render);
 shareButton.addEventListener('click', () => {
   const { scenario, input } = readInput();
-  const ranked = rankCandidates(scenario, input, shareHistory);
-  const selectedTarget = candidates.find((candidate) => candidate.id === shareTargetSelect.value) ?? ranked[0]?.candidate;
-  const recommendedTarget = ranked[0]?.candidate;
+  const workspace = buildDecisionWorkspace(scenario, input, shareHistory);
+  const selectedTarget = candidates.find((candidate) => candidate.id === shareTargetSelect.value) ?? workspace.ranked[0]?.candidate;
+  const recommendedTarget = workspace.ranked[0]?.candidate;
 
   if (!selectedTarget || !recommendedTarget) {
     shareStatusMessage = '공유 가능한 대상이 없습니다. (No share target available)';
