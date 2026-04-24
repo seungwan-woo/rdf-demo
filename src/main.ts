@@ -3,7 +3,7 @@ import { buildDecisionWorkspace, type DecisionWorkspace } from './decision-pipel
 import { renderGraph } from './rdf';
 import { renderGraphViz, type GraphViz, type GraphVizEdge, type GraphVizNode } from './graph-viz';
 import { buildLabelCatalog, describeRdfTerm, formatContextLine, optionLabel } from './labels';
-import { escapeHtml, loadShareHistory, saveShareHistory, type ShareHistoryEntry } from './share-history';
+import { clearShareHistory, escapeHtml, loadShareHistory, saveShareHistory, type ShareHistoryEntry } from './share-history';
 import './style.css';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -103,6 +103,14 @@ const shareButton = document.createElement('button');
 shareButton.className = 'primary share-button';
 shareButton.textContent = labels.shareButton;
 
+const seedDemoButton = document.createElement('button');
+seedDemoButton.className = 'secondary share-button';
+seedDemoButton.textContent = '데모 데이터 채우기 (Seed demo data)';
+
+const resetHistoryButton = document.createElement('button');
+resetHistoryButton.className = 'danger share-button';
+resetHistoryButton.textContent = '데이터 초기화 (Reset data)';
+
 const shareHistoryPanel = document.createElement('div');
 shareHistoryPanel.className = 'share-history-panel';
 
@@ -119,13 +127,30 @@ form.append(
 
 const shareForm = document.createElement('div');
 shareForm.className = 'share-grid';
+
+const shareActionButtons = document.createElement('div');
+shareActionButtons.className = 'share-actions';
+shareActionButtons.append(shareButton, seedDemoButton, resetHistoryButton);
+
 shareForm.append(
   labelWrap(labels.shareTargetLabel, shareTargetSelect),
-  shareButton,
+  shareActionButtons,
 );
 
+const usageTips = document.createElement('details');
+usageTips.className = 'usage-tips';
+usageTips.innerHTML = `
+  <summary>사용 가이드 (How to use)</summary>
+  <ol>
+    <li>시나리오를 선택하고 추천 실행을 눌러 현재 추천을 확인합니다.</li>
+    <li>공유/선택 결과를 기록하면 다음 추천에 history bonus가 반영됩니다.</li>
+    <li>데모 데이터 채우기로 시나리오별 이력을 빠르게 만들 수 있습니다.</li>
+    <li>데이터 초기화로 localStorage 이력을 즉시 비울 수 있습니다.</li>
+  </ol>
+`;
+
 controls.appendChild(form);
-shareControls.append(shareForm, shareHistoryPanel);
+shareControls.append(usageTips, shareForm, shareHistoryPanel);
 
 const output = document.createElement('section');
 output.className = 'output-grid';
@@ -540,6 +565,13 @@ const updateShareTargetOptions = (ranked: ReadonlyArray<Recommendation>): void =
 
 const renderShareHistory = (): void => {
   const historyItems = [...shareHistory].slice(-5).reverse();
+  const byScenario = new Map<string, number>();
+  for (const entry of shareHistory) {
+    byScenario.set(entry.scenario, (byScenario.get(entry.scenario) ?? 0) + 1);
+  }
+  const scenarioSummary = Array.from(byScenario.entries())
+    .map(([scenario, count]) => `${escapeHtml(scenario)}=${count}`)
+    .join(' · ');
   const historyList = historyItems.length > 0
     ? `<ol class="share-history-list">${historyItems.map((entry) => `
       <li>
@@ -554,6 +586,7 @@ const renderShareHistory = (): void => {
     <div class="share-history-head">
       <p><strong>${labels.shareHistoryTitle}</strong></p>
       <p>${shareHistory.length} events persisted in localStorage</p>
+      <p>scenario split: ${scenarioSummary || 'none'}</p>
       <p>${escapeHtml(shareStatusMessage)}</p>
     </div>
     ${historyList}
@@ -564,6 +597,12 @@ const render = (): void => {
   const { scenario, input } = readInput();
   const workspace = buildDecisionWorkspace(scenario, input, shareHistory);
   const graphViz = renderGraphViz(workspace.workingGraph);
+
+  shareButton.textContent = scenario === 'app-surfacing'
+    ? '앱 선택 기록 (Record app choice)'
+    : scenario === 'restaurant-recommendation'
+      ? '음식점 선택 기록 (Record restaurant choice)'
+      : labels.shareButton;
 
   updateShareTargetOptions(workspace.ranked);
   renderShareHistory();
@@ -652,6 +691,37 @@ scenarioSelect.addEventListener('change', () => {
 
 [contentTypeSelect, sourceAppSelect, timeBandSelect, placeSelect].forEach((el) => el.addEventListener('change', render));
 runButton.addEventListener('click', render);
+
+const appendHistoryEntry = (entry: ShareHistoryEntry): boolean => {
+  const nextHistory: ReadonlyArray<ShareHistoryEntry> = [...shareHistory, entry];
+  if (!saveShareHistory(nextHistory)) return false;
+  shareHistory = nextHistory;
+  return true;
+};
+
+const actionNounForScenario = (scenario: ScenarioKey): string => {
+  if (scenario === 'app-surfacing') return '앱 선택';
+  if (scenario === 'restaurant-recommendation') return '음식점 선택';
+  return '공유';
+};
+
+const createEntry = (
+  scenario: ScenarioKey,
+  input: ContextInput,
+  selectedTargetId: string,
+  selectedTargetLabel: string,
+  recommendedTargetId: string,
+): ShareHistoryEntry => ({
+  id: `share-event-${shareHistory.length + 1}`,
+  scenario,
+  input,
+  recommendedTargetId,
+  selectedTargetId,
+  selectedTargetLabel,
+  result: 'success',
+  sharedAt: new Date().toISOString(),
+});
+
 shareButton.addEventListener('click', () => {
   const { scenario, input } = readInput();
   const workspace = buildDecisionWorkspace(scenario, input, shareHistory);
@@ -659,33 +729,71 @@ shareButton.addEventListener('click', () => {
   const recommendedTarget = workspace.ranked[0]?.candidate;
 
   if (!selectedTarget || !recommendedTarget) {
-    shareStatusMessage = '공유 가능한 대상이 없습니다. (No share target available)';
+    shareStatusMessage = '기록 가능한 대상이 없습니다. (No target available)';
     render();
     return;
   }
 
-  const nextHistory: ReadonlyArray<ShareHistoryEntry> = [
-    ...shareHistory,
-    {
-      id: `share-event-${shareHistory.length + 1}`,
-      scenario,
-      input,
-      recommendedTargetId: recommendedTarget.id,
-      selectedTargetId: selectedTarget.id,
-      selectedTargetLabel: selectedTarget.label,
-      result: 'success' as const,
-      sharedAt: new Date().toISOString(),
-    },
+  const success = appendHistoryEntry(createEntry(
+    scenario,
+    input,
+    selectedTarget.id,
+    selectedTarget.label,
+    recommendedTarget.id,
+  ));
+
+  if (!success) {
+    shareStatusMessage = 'localStorage 저장에 실패해 이력이 반영되지 않았습니다. (Persistence failed)';
+    render();
+    return;
+  }
+
+  shareStatusMessage = `${selectedTarget.label} ${actionNounForScenario(scenario)} 이력을 저장했습니다. (Saved successfully)`;
+  render();
+});
+
+seedDemoButton.addEventListener('click', () => {
+  const templates: ReadonlyArray<{
+    scenario: ScenarioKey;
+    input: ContextInput;
+    selectedTargetId: string;
+    selectedTargetLabel: string;
+    recommendedTargetId: string;
+  }> = [
+    { scenario: 'family-photo', input: scenarioDefaults['family-photo'], selectedTargetId: 'kakaotalk', selectedTargetLabel: '카카오톡', recommendedTargetId: 'mom' },
+    { scenario: 'work-doc', input: scenarioDefaults['work-doc'], selectedTargetId: 'slack', selectedTargetLabel: 'Slack', recommendedTargetId: 'slack' },
+    { scenario: 'social-link', input: scenarioDefaults['social-link'], selectedTargetId: 'best-friend', selectedTargetLabel: '베스트프렌드', recommendedTargetId: 'best-friend' },
+    { scenario: 'app-surfacing', input: scenarioDefaults['app-surfacing'], selectedTargetId: 'slack', selectedTargetLabel: 'Slack', recommendedTargetId: 'slack' },
+    { scenario: 'restaurant-recommendation', input: scenarioDefaults['restaurant-recommendation'], selectedTargetId: 'chicken-place', selectedTargetLabel: '치킨집', recommendedTargetId: 'chicken-place' },
   ];
 
-  if (!saveShareHistory(nextHistory)) {
-    shareStatusMessage = 'localStorage 저장에 실패해 RDF 이력이 반영되지 않았습니다. (Persistence failed)';
+  let ok = true;
+  for (const template of templates) {
+    ok = appendHistoryEntry(createEntry(
+      template.scenario,
+      template.input,
+      template.selectedTargetId,
+      template.selectedTargetLabel,
+      template.recommendedTargetId,
+    ));
+    if (!ok) break;
+  }
+
+  shareStatusMessage = ok
+    ? '데모 데이터 5건을 추가했습니다. (Added 5 demo history entries)'
+    : '데모 데이터 저장 중 오류가 발생했습니다. (Failed while seeding data)';
+  render();
+});
+
+resetHistoryButton.addEventListener('click', () => {
+  if (!clearShareHistory()) {
+    shareStatusMessage = '데이터 초기화에 실패했습니다. (Reset failed)';
     render();
     return;
   }
 
-  shareHistory = nextHistory;
-  shareStatusMessage = `${selectedTarget.label} share event를 RDF에 저장했습니다. (Saved successfully)`;
+  shareHistory = [];
+  shareStatusMessage = '데이터를 초기화했습니다. (History reset complete)';
   render();
 });
 

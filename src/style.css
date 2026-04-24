@@ -91,6 +91,32 @@ h1 {
   align-items: end;
 }
 
+.share-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.usage-tips {
+  margin-bottom: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(2, 6, 23, 0.6);
+}
+
+.usage-tips summary {
+  cursor: pointer;
+  color: #bae6fd;
+  font-weight: 600;
+}
+
+.usage-tips ol {
+  margin: 10px 0 0 18px;
+  color: #cbd5e1;
+  display: grid;
+  gap: 6px;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -117,6 +143,22 @@ h1 {
   cursor: pointer;
   background: linear-gradient(135deg, #2563eb, #7c3aed);
   border: none;
+  font-weight: 700;
+}
+
+.secondary {
+  cursor: pointer;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  color: #bae6fd;
+  font-weight: 600;
+}
+
+.danger {
+  cursor: pointer;
+  background: rgba(69, 10, 10, 0.85);
+  border: 1px solid rgba(248, 113, 113, 0.55);
+  color: #fecaca;
   font-weight: 700;
 }
 

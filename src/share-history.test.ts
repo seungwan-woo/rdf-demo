@@ -3,6 +3,7 @@ import { buildContextGraph } from './domain';
 import {
   appendShareHistoryToGraph,
   buildShareEventTriples,
+  clearShareHistory,
   compressShareHistoryForGraph,
   escapeHtml,
   loadShareHistory,
@@ -180,5 +181,22 @@ describe('share history persistence', () => {
     fakeStorage.setItem('rdf-demo/share-history', '{not-json');
 
     expect(loadShareHistory()).toEqual([]);
+  });
+
+  it('clears persisted history from localStorage', () => {
+    expect(saveShareHistory([sampleEntry])).toBe(true);
+    expect(loadShareHistory()).toHaveLength(1);
+
+    expect(clearShareHistory()).toBe(true);
+    expect(loadShareHistory()).toEqual([]);
+    expect(fakeStorage.removeItem).toHaveBeenCalledWith('rdf-demo/share-history');
+  });
+
+  it('returns false when clearing history throws', () => {
+    fakeStorage.removeItem.mockImplementationOnce(() => {
+      throw new Error('cannot remove');
+    });
+
+    expect(clearShareHistory()).toBe(false);
   });
 });

@@ -188,6 +188,16 @@ export const saveShareHistory = (history: ReadonlyArray<ShareHistoryEntry>): boo
   }
 };
 
+export const clearShareHistory = (): boolean => {
+  try {
+    if (typeof localStorage === 'undefined') return false;
+    localStorage.removeItem(SHARE_HISTORY_STORAGE_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 export const persistShareHistoryEntry = (entry: ShareHistoryEntry): ReadonlyArray<ShareHistoryEntry> | null => {
   const nextHistory = [...loadShareHistory(), entry];
   return saveShareHistory(nextHistory) ? nextHistory : null;
