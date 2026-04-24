@@ -18,11 +18,12 @@ export const buildDecisionWorkspace = (
   input: ContextInput,
   history: ReadonlyArray<ShareHistoryEntry> = [],
 ): DecisionWorkspace => {
+  const scenarioHistory = history.filter((entry) => entry.scenario === scenario);
   const baseGraph = buildContextGraph(scenario, input);
-  const historyCompression = compressShareHistoryForGraph(history);
-  const workingGraph = appendShareHistoryToGraph(baseGraph, history);
-  const ranked = rankCandidates(scenario, input, history);
-  const evidence = buildDecisionEvidence(scenario, input, history);
+  const historyCompression = compressShareHistoryForGraph(scenarioHistory);
+  const workingGraph = appendShareHistoryToGraph(baseGraph, scenarioHistory);
+  const ranked = rankCandidates(scenario, input, scenarioHistory);
+  const evidence = buildDecisionEvidence(scenario, input, scenarioHistory);
   const explanation = explanationFor(scenario, input, workingGraph);
 
   return {

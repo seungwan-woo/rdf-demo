@@ -102,6 +102,28 @@ describe('decision workspace composition', () => {
     expect(workspace.ranked[0]?.candidate.id).toBe('kakaotalk');
   });
 
+  it('uses only same-scenario history when building the working graph', () => {
+    const seed = history[0]!;
+    const mixedHistory: ReadonlyArray<ShareHistoryEntry> = [
+      {
+        ...seed,
+        id: 'evt-family',
+        scenario: 'family-photo',
+      },
+      {
+        ...seed,
+        id: 'evt-work',
+        scenario: 'work-doc',
+      },
+    ];
+
+    const workspace = buildDecisionWorkspace('family-photo', input, mixedHistory);
+
+    expect(workspace.historyCompression.recentEntries.map((entry) => entry.id)).toEqual(['evt-family']);
+    expect(workspace.workingGraph.some((triple) => triple.subject.value === 'decision:evt-family')).toBe(true);
+    expect(workspace.workingGraph.some((triple) => triple.subject.value === 'decision:evt-work')).toBe(false);
+  });
+
   it('returns a strongly typed decision workspace shape for the UI layer', () => {
     const workspace: DecisionWorkspace = buildDecisionWorkspace('family-photo', input, history);
 
